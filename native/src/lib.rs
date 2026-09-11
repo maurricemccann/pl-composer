@@ -9,10 +9,18 @@
 //! `lib/emit.ts` and `lib/graph.ts` remain the reference implementation. Every rule here
 //! is a port of a proven one, and `src/bin/emit_spec.rs` exists to prove the port by
 //! diffing this crate's artifact against the TypeScript emitter's, byte for byte.
+//!
+//! The layering is deliberate and worth keeping:
+//!   `types` → `emit` → `graph`   the rules, with no UI in them at all
+//!   `bridge`                     the single seam between those rules and egui_snarl
+//!   `viewer`, `app`              interaction only; they ask the rules, never restate them
 
+pub mod app;
+pub mod bridge;
 pub mod emit;
 pub mod graph;
 pub mod types;
+pub mod viewer;
 
 pub use emit::{derive_graph, emit_spec, stamp_now};
 pub use graph::{

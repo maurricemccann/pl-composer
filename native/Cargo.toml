@@ -16,6 +16,9 @@ name = "emit-spec"
 path = "src/bin/emit_spec.rs"
 
 [dependencies]
+eframe = "0.36.2"
+egui = "0.36"
+egui-snarl = { version = "0.12.0", features = ["serde"] }
 # preserve_order keeps object key order stable through a load/save round trip. The
 # emitted markdown does not depend on it (every op writes a fixed field list), but a
 # piece file rewritten by this app should not silently reshuffle the founder's data.
