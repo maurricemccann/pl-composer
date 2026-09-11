@@ -335,6 +335,12 @@ export default function GraphCanvas({
             onSelectionChange={({ nodes: n }) => setSel(n[0]?.id ?? null)}
             colorMode="dark"
             fitView
+            fitViewOptions={{ padding: 0.18, maxZoom: 1 }}
+            /* The canvas mounts inside a flex column that has not finished sizing, so
+               the `fitView` prop alone fits to a viewport that is about to change and
+               the graph opens clipped at the left edge. Re-fitting on the next frame
+               fits to the real box. */
+            onInit={(rf) => requestAnimationFrame(() => rf.fitView({ padding: 0.18, maxZoom: 1 }))}
             proOptions={{ hideAttribution: false }}
             defaultEdgeOptions={{ style: { stroke: "var(--color-edge)", strokeWidth: 1.5 } }}
             style={{ background: "var(--color-well)" }}
