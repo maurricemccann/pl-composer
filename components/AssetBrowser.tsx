@@ -182,7 +182,7 @@ export default function AssetBrowser({
         />
         <div className="mt-2 flex flex-wrap gap-1">
           <Chip on={catalog === "all"} onClick={() => setCatalog("all")}>
-            all <span className="num opacity-60">{manifest.counts.total}</span>
+            all <span className="num opacity-60">{totalShown}</span>
           </Chip>
           {catalogs.map((r) => (
             <Chip
