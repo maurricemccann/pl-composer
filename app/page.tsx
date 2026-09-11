@@ -116,6 +116,32 @@ export default function Page() {
     setPicking(false);
   };
 
+  /** Deleting a piece with real work in it asks first. Renaming needs no control of
+   *  its own — the title field at the top edits whichever piece is open. */
+  const deletePiece = (id: string) => {
+    const p = pieces[id];
+    if (p?.shots.length && !confirm(`Delete “${p.piece}” — ${p.shots.length} shot(s)? This cannot be undone.`)) {
+      return;
+    }
+    setPieces((all) => {
+      const next = { ...all };
+      delete next[id];
+      if (!Object.keys(next).length) {
+        const fresh = newId();
+        next[fresh] = { ...DEFAULT_PIECE, shots: [] };
+        setActiveId(fresh);
+        setSelected(null);
+        setGraphFor(null);
+      } else if (id === activeId) {
+        const to = Object.keys(next)[0];
+        setActiveId(to);
+        setSelected(next[to].shots.at(-1)?.id ?? null);
+        setGraphFor(null);
+      }
+      return next;
+    });
+  };
+
   const openPiece = (id: string) => {
     setActiveId(id);
     const p = pieces[id];
@@ -198,11 +224,11 @@ export default function Page() {
           {picking && (
             <ul className="absolute left-0 top-full z-30 mt-1 max-h-[60vh] w-[260px] overflow-auto border rule bg-[var(--color-surface)] shadow-lg">
               {Object.entries(pieces).map(([id, p]) => (
-                <li key={id}>
+                <li key={id} className="flex items-stretch">
                   <button
                     onClick={() => openPiece(id)}
                     className={
-                      "flex w-full items-baseline justify-between gap-2 px-2 py-1.5 text-left hover:bg-[var(--color-surface-2)] " +
+                      "flex min-w-0 flex-1 items-baseline justify-between gap-2 px-2 py-1.5 text-left hover:bg-[var(--color-surface-2)] " +
                       (id === activeId ? "text-[var(--color-gold-dim)]" : "")
                     }
                   >
@@ -210,6 +236,14 @@ export default function Page() {
                     <span className="num shrink-0 text-[10px] text-[var(--color-muted)]">
                       {p.shots.length} sh · {pieceDuration(p).toFixed(1)}s
                     </span>
+                  </button>
+                  <button
+                    onClick={() => deletePiece(id)}
+                    aria-label={`Delete ${p.piece}`}
+                    title="Delete piece"
+                    className="px-2 text-[12px] leading-none text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                  >
+                    ×
                   </button>
                 </li>
               ))}
