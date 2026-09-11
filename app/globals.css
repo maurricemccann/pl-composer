@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;1,300;1,400&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=JetBrains+Mono:wght@300;400;500&display=swap');
+@import "tailwindcss";
+
+/* Inherited from pl-os, not reinvented (spec §11). Same tokens, same names — a
+   surface that looks like the cockpit because it is the same house, inner tongue. */
+@theme {
+  --color-bg:        #faf7f0;
+  --color-surface:   #fdf9f1;
+  --color-surface-2: #f5efe2;
+  --color-line:      rgba(160,140,110,0.22);
+  --color-gold:      #c9a84c;
+  --color-gold-dim:  #8a7235;
+  --color-text:      #1a1510;
+  --color-text-dim:  #6b5d48;
+  --color-muted:     #8a8270;
+  --color-ok:        #2d8a6e;
+  --color-warn:      #b07d2a;
+  --color-danger:    #c0392b;
+  --color-info:      #5f93a3;
+  --color-philosophy:#9b72cf;
+
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-body:    'DM Sans', system-ui, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
+  /* Dense, not roomy. A scoring surface is read at a glance, like a mixer strip. */
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numbers are data. They line up, they never reflow, and they read as measurements
+   rather than prose — durations, counts, ids, byte sizes. */
+.num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+/* The one structural device in the chrome: a hairline. Used to separate panes, never
+   to decorate. Matches pl-os's --color-line exactly. */
+.rule { border-color: var(--color-line); }
+
+button { transition: transform .12s ease, opacity .15s ease, background-color .15s ease; }
+button:active:not(:disabled) { transform: scale(0.97); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Quality floor, not announced: keyboard users see where they are. */
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
+  }
+}
+
+/* Scrollbars in a dense tool should be present but not loud. */
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb {
+  background: rgba(160,140,110,0.30);
+  border: 3px solid var(--color-bg);
+  border-radius: 6px;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(160,140,110,0.50); }

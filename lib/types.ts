@@ -1,0 +1,136 @@
+/**
+ * The Composer type system — spec §5.
+ *
+ * This is the load-bearing part. Edges are typed and strictly validated; get the
+ * types right and the spec emission writes itself. Everything here describes
+ * INTENT. Nothing in this file computes pixels — the CLI evaluates.
+ */
+
+/** The six socket types. Order matters only for display. */
+export const SOCKET_TYPES = ["Media", "Curve", "Audio", "Value", "Shot", "Spec"] as const;
+export type SocketType = (typeof SOCKET_TYPES)[number];
+
+/**
+ * What each socket carries, and the one-line reason it exists as its own type.
+ * Kept as data rather than comments so the UI can show it on hover instead of the
+ * founder having to remember six rules.
+ */
+export const SOCKET_META: Record<SocketType, { carries: string; why: string }> = {
+  Media: { carries: "File-backed pixels", why: "Stills and video. Baked." },
+  Curve: {
+    carries: "A curves-library element",
+    why: "Parametric, not baked — it can be driven. That is why it is not Media.",
+  },
+  Audio: { carries: "A track", why: "The only source that produces motion from nothing." },
+  Value: {
+    carries: "A number, constant or time-varying",
+    why: "An envelope, a slider and an LFO are all Value. Envelope is a flavour, not a type.",
+  },
+  Shot: { carries: "What a card resolves to", why: "Exactly one per card." },
+  Spec: { carries: "Terminal", why: "The markdown." },
+};
+
+/**
+ * Socket colours. The graph canvas is the one place the spec allows boldness to be
+ * spent (§11), and typed sockets being colour-coded is what makes a dense graph
+ * readable at a glance. Values are pl-os palette tokens, not new invented hues.
+ */
+export const SOCKET_COLOR: Record<SocketType, string> = {
+  Media: "#c9a84c", // gold — the house accent, for the most common source
+  Curve: "#9b72cf", // philosophy violet — the parametric one
+  Audio: "#2d8a6e", // process green — the one that generates motion
+  Value: "#5f93a3", // info slate — numbers, deliberately the quietest
+  Shot: "#c0392b", // proof red — a resolved shot is an assertion
+  Spec: "#1a1510", // ink — terminal
+};
+
+/* ─────────────────────────── assets (read-only) ─────────────────────────── */
+
+/**
+ * One row of the CLI-produced manifest. The board reads this and never writes it.
+ * `kind` is lowercase here because it is the CLI's vocabulary, not the socket
+ * vocabulary — `assetSocket()` below is the single place they are mapped.
+ */
+export type AssetKind = "media" | "audio" | "curve" | "model";
+
+export interface Asset {
+  id: string;
+  kind: AssetKind;
+  name: string;
+  catalog: string;
+  path: string;
+  ext: string;
+  bytes: number;
+  mtime: number;
+  width: number | null;
+  height: number | null;
+  duration: number | null;
+  tags: string[];
+  thumb_url: string | null;
+}
+
+export interface ManifestRoot {
+  catalog: string;
+  path: string;
+  present: boolean;
+  count: number;
+  reason: string | null;
+}
+
+export interface Manifest {
+  manifest_version: number;
+  generated: string;
+  probed: boolean;
+  roots: ManifestRoot[];
+  counts: { total: number; by_kind: Record<string, number> };
+  assets: Asset[];
+}
+
+/**
+ * Which socket an asset can be plugged into.
+ *
+ * `model` returns null on purpose. The 3D library is real and indexed (153 files),
+ * but v1 has no socket that accepts geometry. Returning null makes that visible in
+ * the UI as "indexed, not yet usable" rather than inventing a seventh type mid-build
+ * — adding one is an additive change later, exactly like the deferred `Range`.
+ */
+export function assetSocket(kind: AssetKind): SocketType | null {
+  switch (kind) {
+    case "media": return "Media";
+    case "curve": return "Curve";
+    case "audio": return "Audio";
+    case "model": return null;
+  }
+}
+
+/* ─────────────────────────── the piece ─────────────────────────── */
+
+export interface Piece {
+  piece: string;
+  target: string;
+  fps: number;
+  resolution: string;
+  shots: Shot[];
+}
+
+export interface Shot {
+  id: string;
+  title: string;
+  duration: number;
+  /** Asset ids this shot draws on. The graph is what wires them; this is the summary
+   *  the spine card and the phone read-only view render without touching graph state. */
+  sourceIds: string[];
+}
+
+export const DEFAULT_PIECE: Piece = {
+  piece: "untitled-piece",
+  target: "remotion → openmontage",
+  fps: 30,
+  resolution: "1080x1920",
+  shots: [],
+};
+
+/** Total runtime. The spine header shows this; the emitted spec records it. */
+export function pieceDuration(p: Piece): number {
+  return p.shots.reduce((n, s) => n + s.duration, 0);
+}

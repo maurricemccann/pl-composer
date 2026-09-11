@@ -1,0 +1,22 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pl-composer",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-09-10",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "observability": { "enabled": true },
+
+  // The manifest is produced by the CLI (OpenMontage/projects/pl-curves/asset_index.py)
+  // and stored in R2 rather than committed. The board reads it and never writes it,
+  // per the spec's §8 manifest contract. Same bucket the curve library already uses.
+  "r2_buckets": [
+    { "binding": "VAULT", "bucket_name": "pl-vault" }
+  ]
+
+  // No custom domain yet — deploy lands on the workers.dev subdomain until the
+  // surface is worth a name. Adding a route later is a config line, not a migration.
+}
