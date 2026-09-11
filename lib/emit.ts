@@ -12,7 +12,7 @@
  * later carries an explicit `nodes` array uses that instead. Same emitter, both ways.
  */
 
-import type { Asset, GraphNode, Piece, Shot } from "./types";
+import type { Asset, GraphNode, Piece, Shot } from "./types.ts";
 
 export type { GraphNode };
 

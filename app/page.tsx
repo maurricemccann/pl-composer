@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AssetBrowser from "@/components/AssetBrowser";
 import SpecSheet from "@/components/SpecSheet";
+import GraphCanvas, { GraphSummary } from "@/components/GraphCanvas";
 import { emitSpec } from "@/lib/emit";
 import {
   type Asset,
@@ -23,6 +24,8 @@ export default function Page() {
   const [loaded, setLoaded] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [spec, setSpec] = useState<string | null>(null);
+  /** Which shot's graph is open. Desktop only — the spec forbids a canvas on phone. */
+  const [graphFor, setGraphFor] = useState<string | null>(null);
 
   const onManifest = useCallback((m: Manifest) => setAssets(m.assets), []);
   const byId = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
@@ -82,6 +85,7 @@ export default function Page() {
   const remove = (id: string) => {
     setPiece((p) => ({ ...p, shots: p.shots.filter((s) => s.id !== id) }));
     setSelected((s) => (s === id ? null : s));
+    setGraphFor((g) => (g === id ? null : g));
   };
 
   /** Attach to the selected shot, or the last one if nothing is selected. Falling
@@ -97,6 +101,7 @@ export default function Page() {
   };
 
   const total = pieceDuration(piece);
+  const openShot = graphFor ? piece.shots.find((s) => s.id === graphFor) ?? null : null;
 
   return (
     <div className="flex h-dvh flex-col">
@@ -130,8 +135,15 @@ export default function Page() {
           <AssetBrowser onPick={attach} onLoad={onManifest} />
         </aside>
 
-        {/* ── The spine ────────────────────────────────────────────────── */}
-        <main className="min-w-0 flex-1 overflow-auto p-4">
+        {/* ── The spine, and under it the graph for whichever card is open ── */}
+        <div className="flex min-w-0 flex-1 flex-col">
+        <main
+          className={
+            openShot
+              ? "shrink-0 overflow-x-auto px-3 py-2"
+              : "min-w-0 flex-1 overflow-auto p-4"
+          }
+        >
           {piece.shots.length === 0 ? (
             <div className="max-w-md">
               <h2 className="text-[16px]" style={{ fontFamily: "var(--font-display)" }}>
@@ -158,8 +170,14 @@ export default function Page() {
                   first={i === 0}
                   last={i === piece.shots.length - 1}
                   selected={selected === s.id}
+                  graphOpen={graphFor === s.id}
+                  compact={openShot !== null}
                   byId={byId}
                   onSelect={() => setSelected(s.id)}
+                  onOpenGraph={() => {
+                    setSelected(s.id);
+                    setGraphFor((g) => (g === s.id ? null : s.id));
+                  }}
                   onPatch={(n) => patch(s.id, n)}
                   onMove={(d) => move(s.id, d)}
                   onRemove={() => remove(s.id)}
@@ -178,6 +196,20 @@ export default function Page() {
             </div>
           )}
         </main>
+
+        {/* Desktop only. On phone the card shows a read-only list instead (§4). */}
+        {openShot && (
+          <div className="hidden min-h-0 flex-1 md:flex">
+            <GraphCanvas
+              key={openShot.id}
+              shot={openShot}
+              byId={byId}
+              onPatch={(n) => patch(openShot.id, n)}
+              onClose={() => setGraphFor(null)}
+            />
+          </div>
+        )}
+        </div>
       </div>
 
       {spec !== null && (
@@ -204,8 +236,11 @@ function ShotCard({
   first,
   last,
   selected,
+  graphOpen,
+  compact,
   byId,
   onSelect,
+  onOpenGraph,
   onPatch,
   onMove,
   onRemove,
@@ -216,8 +251,12 @@ function ShotCard({
   first: boolean;
   last: boolean;
   selected: boolean;
+  graphOpen: boolean;
+  /** The spine becomes a strip once a graph is open — same cards, less of them shown. */
+  compact: boolean;
   byId: Map<string, Asset>;
   onSelect: () => void;
+  onOpenGraph: () => void;
   onPatch: (n: Partial<Shot>) => void;
   onMove: (d: -1 | 1) => void;
   onRemove: () => void;
@@ -237,6 +276,24 @@ function ShotCard({
           {String(index + 1).padStart(2, "0")}
         </span>
         <div className="flex items-center gap-0.5">
+          {/* How a shot gets made. Desktop only — a node graph is never rendered on
+              phone, so the affordance is not offered there either. */}
+          <button
+            title={graphOpen ? "Close graph" : "Open graph"}
+            aria-label={graphOpen ? "Close graph" : "Open graph"}
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenGraph();
+            }}
+            className={
+              "hidden px-1 text-[12px] leading-none md:block " +
+              (graphOpen
+                ? "text-[var(--color-gold)]"
+                : "text-[var(--color-text-dim)] hover:text-[var(--color-text)]")
+            }
+          >
+            ⋔
+          </button>
           <Icon label="Move earlier" onClick={() => onMove(-1)} disabled={first}>
             ←
           </Icon>
@@ -250,10 +307,13 @@ function ShotCard({
       </div>
 
       {/* Where a proxy thumbnail lands in build order step 6. Until then it holds
-          its space rather than collapsing the card's proportions later. */}
-      <div className="flex aspect-video items-center justify-center bg-[var(--color-surface-2)] text-[10px] text-[var(--color-muted)]">
-        no preview
-      </div>
+          its space rather than collapsing the card's proportions later — except in
+          the strip, where the graph below is what the eye is on. */}
+      {!compact && (
+        <div className="flex aspect-video items-center justify-center bg-[var(--color-surface-2)] text-[10px] text-[var(--color-muted)]">
+          no preview
+        </div>
+      )}
 
       <div className="p-2">
         <input
@@ -320,6 +380,19 @@ function ShotCard({
               );
             })}
           </ul>
+        )}
+
+        {/* Phone: the graph as a read-only list. No canvas, no pan-zoom, no gesture
+            code — standing rule, and §4 names this exact fallback. */}
+        {selected && (
+          <div className="mt-2 border-t rule pt-1.5 md:hidden">
+            <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+              graph
+            </span>
+            <div className="mt-1">
+              <GraphSummary shot={shot} byId={byId} />
+            </div>
+          </div>
         )}
       </div>
     </div>

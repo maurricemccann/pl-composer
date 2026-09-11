@@ -9,6 +9,10 @@
     "esModuleInterop": true,
     "module": "esnext",
     "moduleResolution": "bundler",
+    // Lets lib/*.ts import each other with an explicit .ts extension, which is what
+    // makes `node lib/graph.test.ts` run the round-trip check with no test runner and
+    // no build step. Safe with noEmit — the bundler resolves it either way.
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",

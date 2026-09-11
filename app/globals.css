@@ -19,6 +19,20 @@
   --color-info:      #5f93a3;
   --color-philosophy:#9b72cf;
 
+  /* The graph well. Founder ruling S263, settling the tension §11 left open: the
+     chrome stays cream, the canvas interior is a recessed ink ground. Not a second
+     visual system — these are the palette's own ink (--color-text #1a1510) taken one
+     step deeper. The reason is functional, not stylistic: everything composited in
+     this graph is additive-on-black (screen/add/lighten is the default wiring and
+     what the curve library was built for), so a cream canvas would preview every
+     asset against a ground it will never render on. */
+  --color-well:      #14110c;
+  --color-node:      #201a13;
+  --color-node-line: rgba(201,168,76,0.20);
+  --color-node-text: #f2ece0;
+  --color-node-dim:  #9a8d78;
+  --color-edge:      rgba(201,168,76,0.55);
+
   --font-display: 'Cormorant Garamond', Georgia, serif;
   --font-body:    'DM Sans', system-ui, sans-serif;
   --font-mono:    'JetBrains Mono', ui-monospace, monospace;
