@@ -1,0 +1,27 @@
+[package]
+name = "pl-composer-native"
+version = "0.1.0"
+edition = "2021"
+description = "PL Composer as a real program — native scoring surface that also runs the render"
+
+[lib]
+name = "plcomposer"
+path = "src/lib.rs"
+
+# Parity harness: emits a spec from a piece + manifest using the Rust core, so its
+# output can be diffed byte-for-byte against `node scripts/emit-spec.mjs`. Phase 1's
+# entire deliverable is this binary agreeing with the TypeScript one exactly.
+[[bin]]
+name = "emit-spec"
+path = "src/bin/emit_spec.rs"
+
+[dependencies]
+# preserve_order keeps object key order stable through a load/save round trip. The
+# emitted markdown does not depend on it (every op writes a fixed field list), but a
+# piece file rewritten by this app should not silently reshuffle the founder's data.
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+
+[profile.release]
+opt-level = 2
+strip = true
