@@ -12,8 +12,9 @@
  */
 
 import assert from "node:assert/strict";
-import type { Asset, Shot } from "./types.ts";
-import { deriveGraph } from "./emit.ts";
+import type { Asset, Piece, Shot } from "./types.ts";
+import { DEFAULT_PIECE } from "./types.ts";
+import { deriveGraph, emitSpec } from "./emit.ts";
 import { fromGraphNodes, toGraphNodes, canConnect } from "./graph.ts";
 
 function asset(id: string, kind: Asset["kind"], name: string): Asset {
@@ -100,6 +101,30 @@ console.log("connect validation — the load-bearing rule (§5)");
   );
   assert.equal(good.ok, false, "a Curve is not a Shot");
   console.log("  ok  wrong type, occupied port, and cycle all refused");
+}
+
+/**
+ * The other half of the round trip: an edit made on the canvas has to reach the
+ * markdown. The N-panel writes straight into `node.data.args`, so asserting that a
+ * changed arg survives toGraphNodes → emitSpec covers the whole authoring path in
+ * one check — and keeps covering it, which a one-off click in a browser does not.
+ */
+console.log("canvas edits reach the emitted spec");
+{
+  const s = shot(["img_1183", "crv_0142", "aud_0007"]);
+  const { nodes, edges } = fromGraphNodes(deriveGraph(s, byId), s.sourceIds, byId);
+
+  const layer = nodes.find((n) => n.data.kind === "layer")!;
+  assert.equal(layer.data.args.blend, "screen", "the derived default is screen");
+  layer.data.args = { ...layer.data.args, blend: "multiply", opacity: 0.42 };
+
+  const piece: Piece = { ...DEFAULT_PIECE, shots: [{ ...s, nodes: toGraphNodes(nodes, edges) }] };
+  const md = emitSpec(piece, ASSETS);
+
+  assert.match(md, /blend: multiply/, "a blend changed on the canvas must reach the spec");
+  assert.match(md, /opacity: 0\.42/, "a numeric param changed on the canvas must reach the spec");
+  assert.match(md, /bind: \{ opacity: v_opacity \}/, "the audio binding must survive the edit");
+  console.log("  ok  blend, opacity and the audio bind all land in the markdown");
 }
 
 console.log("\nall checks passed");
