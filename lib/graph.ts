@@ -28,6 +28,7 @@ export type NodeKind =
   | "remap"
   | "constant"
   | "layer"
+  | "matte"
   | "shot";
 
 export interface PortSpec {
@@ -135,6 +136,26 @@ export const KINDS: Record<NodeKind, KindSpec> = {
     ],
     rank: 3,
   },
+  matte: {
+    label: "Matte",
+    why: "The base seen ONLY inside the shape's marks. Not a blend — a window cut into one picture in the shape of another.",
+    inputs: [
+      { id: "base", label: "base", accepts: MEDIAISH },
+      { id: "shape", label: "shape", accepts: MEDIAISH },
+    ],
+    output: "Shot",
+    params: [
+      { key: "threshold", label: "threshold", type: "number", min: 0, max: 255, step: 1 },
+      { key: "feather", label: "feather", type: "number", min: 0, max: 40, step: 1 },
+      {
+        key: "ground",
+        label: "ground",
+        type: "select",
+        options: ["auto", "cream", "obsidian"],
+      },
+    ],
+    rank: 3,
+  },
   shot: {
     label: "Shot",
     why: "What this card resolves to. Exactly one per card, and a graph can never contain another (§4).",
@@ -152,6 +173,9 @@ export function defaultArgs(kind: NodeKind): Record<string, unknown> {
     case "remap": return { in: [0.0, 1.0], out: [0.35, 1.0], ease: "linear" };
     case "constant": return { value: 1.0 };
     case "layer": return { blend: "screen", opacity: 1.0 };
+    // `ground: auto` means "let the renderer decide from the shape" — cream for ink,
+    // obsidian otherwise. It is omitted from the emitted spec rather than written out.
+    case "matte": return { ground: "auto" };
     case "blender_render": return { fps: "@piece.fps", resolution: "@piece.resolution" };
     default: return {};
   }
@@ -283,7 +307,9 @@ export function toGraphNodes(nodes: GNode[], edges: GEdge[]): GraphNode[] {
   }
 
   const tiebreak = (n: GNode, i: number) =>
-    n.data.kind === "layer" ? (layerOrder.get(n.id) ?? 1e6) : i;
+    n.data.kind === "layer" || n.data.kind === "matte"
+      ? (layerOrder.get(n.id) ?? 1e6)
+      : i;
 
   // Kahn, lowest (rank, tiebreak) first.
   const indeg = new Map<string, number>(nodes.map((n) => [n.id, 0]));
@@ -329,6 +355,16 @@ export function toGraphNodes(nodes: GNode[], edges: GEdge[]): GraphNode[] {
       out.push({ op: "remap", out: n.data.out, args: { source, ...args } });
     } else if (kind === "constant") {
       out.push({ op: "constant", out: n.data.out, args: { ...args } });
+    } else if (kind === "matte") {
+      const base = inputRef(n.id, "base");
+      const shape = inputRef(n.id, "shape");
+      if (!base || !shape) continue; // a matte needs both halves to mean anything
+      const a: Record<string, unknown> = { base, shape };
+      for (const k of ["threshold", "feather"]) {
+        if (args[k] !== undefined && args[k] !== null && args[k] !== "") a[k] = args[k];
+      }
+      if (args.ground && args.ground !== "auto") a.ground = args.ground;
+      out.push({ op: "matte", args: a });
     } else if (kind === "layer") {
       const base = inputRef(n.id, "base");
       if (!base) continue; // a layer with no base is not a layer yet
@@ -411,6 +447,14 @@ export function fromGraphNodes(
       link(args.source, id, "value");
     } else if (op === "constant") {
       nodes.push({ id, type: "pl", position: { x: 0, y: 0 }, data: { kind: "constant", out: g.out, args: rest } });
+    } else if (op === "matte") {
+      delete rest.base;
+      delete rest.shape;
+      if (rest.ground === undefined) rest.ground = "auto";
+      nodes.push({ id, type: "pl", position: { x: 0, y: 0 }, data: { kind: "matte", args: rest } });
+      link(args.base, id, "base");
+      link(args.shape, id, "shape");
+      layerIds.push(id);
     } else if (op === "layer") {
       delete rest.base;
       delete rest.overlay;
@@ -472,7 +516,7 @@ export function canvasFor(shot: Shot, byId: Map<string, Asset>) {
 
 /** A fresh, unused `v_`/`m_` identifier. Names are for humans; uniqueness is for the CLI. */
 export function nextOut(kind: NodeKind, nodes: GNode[], assetId?: string): string | undefined {
-  if (kind === "layer" || kind === "source" || kind === "shot") return undefined;
+  if (kind === "layer" || kind === "matte" || kind === "source" || kind === "shot") return undefined;
   const base =
     kind === "blender_render" ? `m_${assetId ?? "render"}`
     : kind === "envelope_extract" ? "v_energy"

@@ -158,6 +158,7 @@ function PLNode({ id, data, selected }: NodeProps<RFNode>) {
 function summarise(d: GNodeData): string {
   const a = d.args;
   if (d.kind === "layer") return `${a.blend} · ${Number(a.opacity ?? 1).toFixed(2)}`;
+  if (d.kind === "matte") return a.threshold ? `cut @ ${a.threshold}` : "soft";
   if (d.kind === "constant") return String(a.value);
   return "";
 }
@@ -291,7 +292,7 @@ export default function GraphCanvas({
           </button>
           {adding && (
             <ul className="absolute left-0 top-full z-20 mt-1 w-[210px] border rule bg-[var(--color-surface)] shadow-lg">
-              {(["blender_render", "envelope_extract", "remap", "constant", "layer"] as NodeKind[]).map((k) => (
+              {(["blender_render", "envelope_extract", "remap", "constant", "layer", "matte"] as NodeKind[]).map((k) => (
                 <li key={k}>
                   <button
                     onClick={() => add(k)}

@@ -16,6 +16,7 @@ import type { Asset, Piece, Shot } from "./types.ts";
 import { DEFAULT_PIECE } from "./types.ts";
 import { deriveGraph, emitSpec } from "./emit.ts";
 import { fromGraphNodes, toGraphNodes, canConnect } from "./graph.ts";
+import type { GNode, GEdge } from "./graph.ts";
 
 function asset(id: string, kind: Asset["kind"], name: string): Asset {
   return {
@@ -125,6 +126,52 @@ console.log("canvas edits reach the emitted spec");
   assert.match(md, /opacity: 0\.42/, "a numeric param changed on the canvas must reach the spec");
   assert.match(md, /bind: \{ opacity: v_opacity \}/, "the audio binding must survive the edit");
   console.log("  ok  blend, opacity and the audio bind all land in the markdown");
+}
+
+/**
+ * The Matte node (S263, founder's own direction: "the attractor maybe within the
+ * curves"). It is the first op that is NOT a blend, so it gets the same round-trip and
+ * emission guarantees as everything else rather than being trusted because it is new.
+ */
+console.log("matte — the first non-blend op");
+{
+  const nodes: GNode[] = [
+    { id: "src_a", type: "pl", position: { x: 0, y: 0 }, data: { kind: "source", assetId: "img_1183", args: {} } },
+    { id: "src_b", type: "pl", position: { x: 0, y: 0 }, data: { kind: "source", assetId: "crv_0142", args: {} } },
+    { id: "mt_1", type: "pl", position: { x: 0, y: 0 }, data: { kind: "matte", args: { threshold: 128, ground: "auto" } } },
+    { id: "shot_x", type: "pl", position: { x: 0, y: 0 }, data: { kind: "shot", args: {} } },
+  ];
+  const edges: GEdge[] = [
+    { id: "e0", source: "src_a", target: "mt_1", sourceHandle: "out", targetHandle: "base" },
+    { id: "e1", source: "src_b", target: "mt_1", sourceHandle: "out", targetHandle: "shape" },
+    { id: "e2", source: "mt_1", target: "shot_x", sourceHandle: "out", targetHandle: "layers" },
+  ];
+
+  const ops = toGraphNodes(nodes, edges);
+  assert.equal(ops.length, 1, "one matte op");
+  assert.deepEqual(norm(ops[0]), norm({
+    op: "matte", args: { base: "img_1183", shape: "crv_0142", threshold: 128 },
+  }), "ground:auto is a renderer default and must NOT be written into the spec");
+
+  // round trip
+  const rt = fromGraphNodes(ops, ["img_1183", "crv_0142"], byId);
+  assert.deepEqual(norm(toGraphNodes(rt.nodes, rt.edges)), norm(ops),
+    "a matte must survive the canvas unchanged");
+
+  // it reaches the markdown
+  const piece: Piece = {
+    ...DEFAULT_PIECE,
+    shots: [{ id: "shot_01", title: "inside the curves", duration: 4, sourceIds: ["img_1183", "crv_0142"], nodes: ops }],
+  };
+  const md = emitSpec(piece, ASSETS);
+  assert.match(md, /- matte:/, "the matte op must appear in the spec");
+  assert.match(md, /shape: crv_0142/, "the shape must be named");
+  assert.doesNotMatch(md, /ground: auto/, "auto ground must not be emitted");
+
+  // a half-wired matte is not a matte
+  const halfOps = toGraphNodes(nodes, edges.filter((e) => e.targetHandle !== "shape"));
+  assert.equal(halfOps.length, 0, "a matte with no shape emits nothing rather than a broken op");
+  console.log("  ok  emits, round-trips, drops auto-ground, and refuses to half-emit");
 }
 
 console.log("\nall checks passed");

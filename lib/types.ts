@@ -125,7 +125,7 @@ export interface Piece {
  * carry its own graph without the type system importing the serialiser.
  */
 export interface GraphNode {
-  op: "envelope_extract" | "remap" | "constant" | "blender_render" | "layer";
+  op: "envelope_extract" | "remap" | "constant" | "blender_render" | "layer" | "matte";
   /** Node-local value identifier this node produces, e.g. "v_energy". */
   out?: string;
   args: Record<string, unknown>;

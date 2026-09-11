@@ -1,0 +1,17 @@
+{
+  "piece": "the-practice-v1",
+  "target": "remotion → openmontage",
+  "fps": 30,
+  "resolution": "1080x1920",
+  "shots": [
+    { "id": "shot_01", "title": "entry", "duration": 4, "sourceIds": ["5cc978f44ff0", "ac8da4bd14ae"] },
+    { "id": "shot_02", "title": "the figure", "duration": 4, "sourceIds": ["604547a70808", "1c3d4da058e9", "ac8da4bd14ae"] },
+    { "id": "shot_03", "title": "the curve", "duration": 3.5, "sourceIds": ["b680166de959", "ac8da4bd14ae"] },
+    { "id": "shot_04", "title": "ink", "duration": 4, "sourceIds": ["15d061b1b62d", "ac8da4bd14ae"] },
+    { "id": "shot_05", "title": "ink over flow", "duration": 4, "sourceIds": ["31816bc4d061", "87f34c9b0a77", "ac8da4bd14ae"] },
+    { "id": "shot_06", "title": "the mark, 3d", "duration": 4, "sourceIds": ["6a0410ef601f", "ac8da4bd14ae"] },
+    { "id": "shot_07", "title": "dont let them win", "duration": 5, "sourceIds": ["a1e4b541989f", "acac6d058291", "ac8da4bd14ae"] },
+    { "id": "shot_08", "title": "money grin", "duration": 3.5, "sourceIds": ["ab55b5bbf8d9", "ac8da4bd14ae"] },
+    { "id": "shot_09", "title": "the fill", "duration": 4, "sourceIds": ["b924c31d2824", "ac8da4bd14ae"] }
+  ]
+}

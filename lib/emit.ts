@@ -142,6 +142,20 @@ function nodeLines(n: GraphNode, byId: Map<string, Asset>): string[] {
       `      resolution: ${val(n.args.resolution)}`,
     ];
   }
+  if (n.op === "matte") {
+    // Not a blend: the base is seen only INSIDE the shape's marks. No blend mode can
+    // express that, which is why it is its own op rather than a layer variant.
+    const out: string[] = ["  - matte:"];
+    out.push(`      base: ${n.args.base}${name(n.args.base)}`);
+    out.push(`      shape: ${n.args.shape}${name(n.args.shape)}`);
+    for (const k of ["invert", "threshold", "feather", "ground"]) {
+      if (n.args[k] !== undefined && n.args[k] !== null && n.args[k] !== "") {
+        out.push(`      ${k}: ${val(n.args[k])}`);
+      }
+    }
+    return out;
+  }
+
   // layer
   const out: string[] = ["  - layer:"];
   out.push(`      base: ${n.args.base}${name(n.args.base)}`);
