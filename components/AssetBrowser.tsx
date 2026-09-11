@@ -13,6 +13,12 @@ import {
  *  virtualization dependency until a real piece proves the cap is the problem. */
 const PAGE = 60;
 
+/** m:ss — short enough to sit in a dense row without pushing the name out. */
+function clock(sec: number): string {
+  const s = Math.round(sec);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
 function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
@@ -24,6 +30,7 @@ export default function AssetBrowser({
   onPick,
   onLoad,
   thumbs: thumbsProp,
+  attachTo,
 }: {
   onPick?: (a: Asset) => void;
   /** Hands the loaded manifest up so the page can resolve ids when emitting the
@@ -31,6 +38,10 @@ export default function AssetBrowser({
   onLoad?: (m: Manifest) => void;
   /** id -> data URI, fetched once by the page and shared with the spine. */
   thumbs?: Record<string, string>;
+  /** Where a click will land. Clicking an asset attaches it to the selected shot, and
+   *  nothing here used to say which one — the only feedback was a source count quietly
+   *  changing in a card that might be off to the side. */
+  attachTo?: string | null;
 }) {
   const thumbs = thumbsProp ?? {};
   const [manifest, setManifest] = useState<Manifest | null>(null);
@@ -57,10 +68,30 @@ export default function AssetBrowser({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Counts follow the TEXT filter. They used to keep their full-library numbers while
+   *  a filter was active, so the chips stopped describing what was on screen. */
   const catalogs = useMemo(() => {
     if (!manifest) return [];
-    return manifest.roots.filter((r) => r.present && r.count > 0);
-  }, [manifest]);
+    const needle = q.trim().toLowerCase();
+    const tally = new Map<string, number>();
+    for (const a of manifest.assets) {
+      if (needle && !a.name.toLowerCase().includes(needle) && !a.ext.includes(needle)) continue;
+      tally.set(a.catalog, (tally.get(a.catalog) ?? 0) + 1);
+    }
+    return manifest.roots
+      .filter((r) => r.present && r.count > 0)
+      .map((r) => ({ ...r, count: tally.get(r.catalog) ?? 0 }))
+      .filter((r) => r.count > 0);
+  }, [manifest, q]);
+
+  const totalShown = useMemo(() => {
+    if (!manifest) return 0;
+    const needle = q.trim().toLowerCase();
+    if (!needle) return manifest.counts.total;
+    return manifest.assets.filter(
+      (a) => a.name.toLowerCase().includes(needle) || a.ext.includes(needle),
+    ).length;
+  }, [manifest, q]);
 
   const filtered = useMemo(() => {
     if (!manifest) return [];
@@ -105,12 +136,26 @@ export default function AssetBrowser({
             Library
           </span>
           <span className="num text-[11px] text-[var(--color-muted)]">
-            {manifest.counts.total.toLocaleString()} assets
+            {totalShown.toLocaleString()}
+            {totalShown !== manifest.counts.total &&
+              ` of ${manifest.counts.total.toLocaleString()}`}{" "}
+            assets
           </span>
         </div>
         <div className="num mt-0.5 text-[10px] text-[var(--color-muted)]">
           indexed {manifest.generated.replace("T", " ")}
           {!manifest.probed && " · durations not probed"}
+        </div>
+        {/* Where a click lands. Without this the only feedback for an attach is a
+            source count changing in a card that may be scrolled out of view. */}
+        <div className="mt-1 truncate text-[10px]">
+          {attachTo ? (
+            <span className="text-[var(--color-gold-dim)]">
+              click an asset → attaches to <span className="num">{attachTo}</span>
+            </span>
+          ) : (
+            <span className="text-[var(--color-muted)]">add a shot to attach assets</span>
+          )}
         </div>
       </div>
 
@@ -190,6 +235,14 @@ export default function AssetBrowser({
                       </span>
                     )}
                     <span className="min-w-0 flex-1 truncate">{a.name}</span>
+                    {/* Real length, once the index has been probed. Without it a 4s
+                        shot pulled from a 30s clip silently uses the first 4s and
+                        nothing on screen relates the two. */}
+                    {a.duration ? (
+                      <span className="num shrink-0 text-[10px] text-[var(--color-gold-dim)]">
+                        {clock(a.duration)}
+                      </span>
+                    ) : null}
                     <span className="num shrink-0 text-[10px] text-[var(--color-muted)]">
                       {a.ext.replace(".", "")}
                     </span>

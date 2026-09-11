@@ -168,6 +168,27 @@ export default function Page() {
       shots: p.shots.map((s) => (s.id === id ? { ...s, ...next } : s)),
     }));
 
+  /** Duplicate a shot — §4 lists it as a spine affordance and it was never built.
+   *  Building three similar shots meant repeating every step by hand. */
+  const duplicate = (id: string) =>
+    setPiece((p) => {
+      const i = p.shots.findIndex((s) => s.id === id);
+      if (i < 0) return p;
+      const src = p.shots[i];
+      const used = new Set(p.shots.map((s) => s.id));
+      let n = p.shots.length + 1;
+      while (used.has(`shot_${String(n).padStart(2, "0")}`)) n++;
+      const copy: Shot = {
+        ...src,
+        id: `shot_${String(n).padStart(2, "0")}`,
+        sourceIds: [...src.sourceIds],
+        nodes: src.nodes ? JSON.parse(JSON.stringify(src.nodes)) : undefined,
+      };
+      const shots = [...p.shots];
+      shots.splice(i + 1, 0, copy);
+      return { ...p, shots };
+    });
+
   const move = (id: string, dir: -1 | 1) =>
     setPiece((p) => {
       const i = p.shots.findIndex((s) => s.id === id);
@@ -264,7 +285,20 @@ export default function Page() {
         <Field label="resolution" value={piece.resolution} />
         <button
           disabled={piece.shots.length === 0}
-          onClick={() => setSpec(emitSpec(piece, assets))}
+          onClick={() => {
+            // Titles are the only human-readable labels in the artifact, and they ride
+            // straight into it as `## Shot 01 — untitled shot`. Warn once; never block.
+            const untitled = piece.shots.filter((s) => !s.title.trim() || s.title === "untitled shot");
+            if (
+              untitled.length &&
+              !confirm(
+                `${untitled.length} shot(s) are still called “untitled shot”, and the title is the only readable label in the emitted spec.\n\nBuild it anyway?`,
+              )
+            ) {
+              return;
+            }
+            setSpec(emitSpec(piece, assets));
+          }}
           className="border border-[var(--color-gold)] bg-[var(--color-gold)]/12 px-3 py-1 text-[12px] text-[var(--color-text)] hover:bg-[var(--color-gold)]/20"
           title={piece.shots.length === 0 ? "Add a shot first" : "Emit the markdown spec"}
         >
@@ -276,7 +310,16 @@ export default function Page() {
         {/* ── Library. Desktop only: the spec forbids a graph on phone, and an
               asset browser beside a spine is the same density problem. ──── */}
         <aside className="hidden w-[300px] shrink-0 border-r rule md:block">
-          <AssetBrowser onPick={attach} onLoad={onManifest} thumbs={thumbs} />
+          <AssetBrowser
+            onPick={attach}
+            onLoad={onManifest}
+            thumbs={thumbs}
+            attachTo={(() => {
+              const t = selected ?? piece.shots.at(-1)?.id;
+              const i = piece.shots.findIndex((s) => s.id === t);
+              return i < 0 ? null : `Shot ${String(i + 1).padStart(2, "0")} — ${piece.shots[i].title}`;
+            })()}
+          />
         </aside>
 
         {/* ── The spine, and under it the graph for whichever card is open ── */}
@@ -325,6 +368,7 @@ export default function Page() {
                   }}
                   onPatch={(n) => patch(s.id, n)}
                   onMove={(d) => move(s.id, d)}
+                  onDuplicate={() => duplicate(s.id)}
                   onRemove={() => remove(s.id)}
                   onDetach={(aid) =>
                     patch(s.id, { sourceIds: s.sourceIds.filter((x) => x !== aid) })
@@ -389,6 +433,7 @@ function ShotCard({
   onOpenGraph,
   onPatch,
   onMove,
+  onDuplicate,
   onRemove,
   onDetach,
 }: {
@@ -406,6 +451,7 @@ function ShotCard({
   onOpenGraph: () => void;
   onPatch: (n: Partial<Shot>) => void;
   onMove: (d: -1 | 1) => void;
+  onDuplicate: () => void;
   onRemove: () => void;
   onDetach: (assetId: string) => void;
 }) {
@@ -446,6 +492,9 @@ function ShotCard({
           </Icon>
           <Icon label="Move later" onClick={() => onMove(1)} disabled={last}>
             →
+          </Icon>
+          <Icon label="Duplicate shot" onClick={onDuplicate}>
+            ⧉
           </Icon>
           <Icon label="Delete shot" onClick={onRemove}>
             ×
@@ -504,6 +553,25 @@ function ShotCard({
           <span className="num text-[10px] text-[var(--color-muted)]">
             {shot.sourceIds.length} src
           </span>
+        </div>
+
+        {/* A shot longer than its source is not an error — the renderer holds the last
+            frame — but it IS a still frame nobody asked for, and it used to be
+            invisible until the render printed a note. Needs a probed index. */}
+        <div>
+          {(() => {
+            const short = shot.sourceIds
+              .map((id) => byId.get(id))
+              .filter((a): a is Asset => !!a && a.kind !== "audio" && !!a.duration && a.duration < shot.duration - 0.05);
+            if (!short.length) return null;
+            return (
+              <div className="mt-1 text-[10px] leading-snug text-[var(--color-warn)]">
+                {short.length === 1
+                  ? `${short[0].name} is ${short[0].duration!.toFixed(1)}s — the last frame holds for ${(shot.duration - short[0].duration!).toFixed(1)}s`
+                  : `${short.length} sources are shorter than this shot — their last frames hold`}
+              </div>
+            );
+          })()}
         </div>
 
         {/* What is actually attached. The card is where a wrong source gets caught,
