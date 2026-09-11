@@ -1,12 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import AssetBrowser from "@/components/AssetBrowser";
+import SpecSheet from "@/components/SpecSheet";
+import { emitSpec } from "@/lib/emit";
 import {
   type Asset,
+  type Manifest,
   type Piece,
   type Shot,
   DEFAULT_PIECE,
+  SOCKET_COLOR,
+  assetSocket,
   pieceDuration,
 } from "@/lib/types";
 
@@ -16,6 +21,11 @@ export default function Page() {
   const [piece, setPiece] = useState<Piece>(DEFAULT_PIECE);
   const [selected, setSelected] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [spec, setSpec] = useState<string | null>(null);
+
+  const onManifest = useCallback((m: Manifest) => setAssets(m.assets), []);
+  const byId = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
 
   // Per-viewer convenience only. The spec is the product; this is just so a piece
   // survives a refresh while it is being scored.
@@ -93,12 +103,9 @@ export default function Page() {
         <Field label="resolution" value={piece.resolution} />
         <button
           disabled={piece.shots.length === 0}
+          onClick={() => setSpec(emitSpec(piece, assets))}
           className="border border-[var(--color-gold)] bg-[var(--color-gold)]/12 px-3 py-1 text-[12px] text-[var(--color-text)] hover:bg-[var(--color-gold)]/20"
-          title={
-            piece.shots.length === 0
-              ? "Add a shot first"
-              : "Emits the markdown spec — not implemented yet (build order step 3)"
-          }
+          title={piece.shots.length === 0 ? "Add a shot first" : "Emit the markdown spec"}
         >
           Build spec
         </button>
@@ -108,7 +115,7 @@ export default function Page() {
         {/* ── Library. Desktop only: the spec forbids a graph on phone, and an
               asset browser beside a spine is the same density problem. ──── */}
         <aside className="hidden w-[300px] shrink-0 border-r rule md:block">
-          <AssetBrowser onPick={attach} />
+          <AssetBrowser onPick={attach} onLoad={onManifest} />
         </aside>
 
         {/* ── The spine ────────────────────────────────────────────────── */}
@@ -139,10 +146,14 @@ export default function Page() {
                   first={i === 0}
                   last={i === piece.shots.length - 1}
                   selected={selected === s.id}
+                  byId={byId}
                   onSelect={() => setSelected(s.id)}
                   onPatch={(n) => patch(s.id, n)}
                   onMove={(d) => move(s.id, d)}
                   onRemove={() => remove(s.id)}
+                  onDetach={(aid) =>
+                    patch(s.id, { sourceIds: s.sourceIds.filter((x) => x !== aid) })
+                  }
                 />
               ))}
               <button
@@ -156,6 +167,10 @@ export default function Page() {
           )}
         </main>
       </div>
+
+      {spec !== null && (
+        <SpecSheet spec={spec} pieceName={piece.piece} onClose={() => setSpec(null)} />
+      )}
     </div>
   );
 }
@@ -177,20 +192,24 @@ function ShotCard({
   first,
   last,
   selected,
+  byId,
   onSelect,
   onPatch,
   onMove,
   onRemove,
+  onDetach,
 }: {
   shot: Shot;
   index: number;
   first: boolean;
   last: boolean;
   selected: boolean;
+  byId: Map<string, Asset>;
   onSelect: () => void;
   onPatch: (n: Partial<Shot>) => void;
   onMove: (d: -1 | 1) => void;
   onRemove: () => void;
+  onDetach: (assetId: string) => void;
 }) {
   return (
     <div
@@ -252,6 +271,44 @@ function ShotCard({
             {shot.sourceIds.length} src
           </span>
         </div>
+
+        {/* What is actually attached. The card is where a wrong source gets caught,
+            so the sources are named here rather than only counted. */}
+        {shot.sourceIds.length > 0 && (
+          <ul className="mt-2 border-t rule pt-1.5">
+            {shot.sourceIds.map((aid) => {
+              const a = byId.get(aid);
+              return (
+                <li key={aid} className="flex items-center gap-1.5 py-0.5">
+                  <span
+                    aria-hidden
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{
+                      background: a ? SOCKET_COLOR[assetSocket(a.kind)] : "var(--color-danger)",
+                    }}
+                  />
+                  <span
+                    className="min-w-0 flex-1 truncate text-[11px]"
+                    title={a ? a.path : "This id is not in the current manifest"}
+                  >
+                    {a ? a.name : `${aid} — missing`}
+                  </span>
+                  <button
+                    aria-label="Remove source"
+                    title="Remove source"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDetach(aid);
+                    }}
+                    className="px-0.5 text-[11px] leading-none text-[var(--color-muted)] hover:text-[var(--color-danger)]"
+                  >
+                    ×
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </div>
   );

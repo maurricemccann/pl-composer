@@ -6,8 +6,17 @@
  * INTENT. Nothing in this file computes pixels — the CLI evaluates.
  */
 
-/** The six socket types. Order matters only for display. */
-export const SOCKET_TYPES = ["Media", "Curve", "Audio", "Value", "Shot", "Spec"] as const;
+/**
+ * The socket types. Order matters only for display.
+ *
+ * `Model` is the seventh, added S263 on the founder's ruling ("nothing left out, I
+ * want us to be able to use everything") after phase 1 shipped with 153 indexed
+ * .blend files that no socket could accept. It is deliberately NOT interchangeable
+ * with Media: geometry has to be rendered before it is pixels, and the `BlenderRender`
+ * deriver is the only edge out of it. That keeps the spec honest about which stage
+ * produced what — the same separation that makes Curve distinct from Media.
+ */
+export const SOCKET_TYPES = ["Media", "Curve", "Audio", "Value", "Model", "Shot", "Spec"] as const;
 export type SocketType = (typeof SOCKET_TYPES)[number];
 
 /**
@@ -26,6 +35,10 @@ export const SOCKET_META: Record<SocketType, { carries: string; why: string }> =
     carries: "A number, constant or time-varying",
     why: "An envelope, a slider and an LFO are all Value. Envelope is a flavour, not a type.",
   },
+  Model: {
+    carries: "Geometry — a .blend, .glb, .fbx",
+    why: "Not pixels yet. Render it to get Media; that stage is never implicit.",
+  },
   Shot: { carries: "What a card resolves to", why: "Exactly one per card." },
   Spec: { carries: "Terminal", why: "The markdown." },
 };
@@ -40,6 +53,7 @@ export const SOCKET_COLOR: Record<SocketType, string> = {
   Curve: "#9b72cf", // philosophy violet — the parametric one
   Audio: "#2d8a6e", // process green — the one that generates motion
   Value: "#5f93a3", // info slate — numbers, deliberately the quietest
+  Model: "#b07d2a", // warn amber — geometry, one render away from being usable
   Shot: "#c0392b", // proof red — a resolved shot is an assertion
   Spec: "#1a1510", // ink — terminal
 };
@@ -86,20 +100,13 @@ export interface Manifest {
   assets: Asset[];
 }
 
-/**
- * Which socket an asset can be plugged into.
- *
- * `model` returns null on purpose. The 3D library is real and indexed (153 files),
- * but v1 has no socket that accepts geometry. Returning null makes that visible in
- * the UI as "indexed, not yet usable" rather than inventing a seventh type mid-build
- * — adding one is an additive change later, exactly like the deferred `Range`.
- */
-export function assetSocket(kind: AssetKind): SocketType | null {
+/** Which socket an asset plugs into. Every indexed kind now has one (S263). */
+export function assetSocket(kind: AssetKind): SocketType {
   switch (kind) {
     case "media": return "Media";
     case "curve": return "Curve";
     case "audio": return "Audio";
-    case "model": return null;
+    case "model": return "Model";
   }
 }
 
@@ -113,6 +120,17 @@ export interface Piece {
   shots: Shot[];
 }
 
+/**
+ * One operation in a shot's graph. Lives here rather than in emit.ts so a Shot can
+ * carry its own graph without the type system importing the serialiser.
+ */
+export interface GraphNode {
+  op: "envelope_extract" | "remap" | "constant" | "blender_render" | "layer";
+  /** Node-local value identifier this node produces, e.g. "v_energy". */
+  out?: string;
+  args: Record<string, unknown>;
+}
+
 export interface Shot {
   id: string;
   title: string;
@@ -120,6 +138,9 @@ export interface Shot {
   /** Asset ids this shot draws on. The graph is what wires them; this is the summary
    *  the spine card and the phone read-only view render without touching graph state. */
   sourceIds: string[];
+  /** Set once the graph canvas exists (build order step 4). While it is absent the
+   *  emitter derives a real default wiring from the sources — not a placeholder. */
+  nodes?: GraphNode[];
 }
 
 export const DEFAULT_PIECE: Piece = {

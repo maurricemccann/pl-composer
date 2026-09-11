@@ -22,8 +22,12 @@ function bytes(n: number): string {
 
 export default function AssetBrowser({
   onPick,
+  onLoad,
 }: {
   onPick?: (a: Asset) => void;
+  /** Hands the loaded manifest up so the page can resolve ids when emitting the
+   *  spec. One fetch, one owner — the page does not re-request it. */
+  onLoad?: (m: Manifest) => void;
 }) {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [error, setError] = useState<{ error: string; detail?: string } | null>(null);
@@ -38,8 +42,15 @@ export default function AssetBrowser({
         if (!r.ok) throw j;
         return j as Manifest;
       })
-      .then(setManifest)
+      .then((m) => {
+        setManifest(m);
+        onLoad?.(m);
+      })
       .catch((e) => setError(e?.error ? e : { error: "unreachable", detail: String(e) }));
+    // Intentionally once on mount: the manifest is republished by the CLI, not by
+    // anything this component does, so re-running on an onLoad identity change would
+    // only refetch 5,500 rows for nothing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const catalogs = useMemo(() => {
@@ -149,17 +160,13 @@ export default function AssetBrowser({
                 <li key={a.id}>
                   <button
                     onClick={() => onPick?.(a)}
-                    disabled={!socket}
-                    title={socket ? a.path : `${a.path}\n\nIndexed, but v1 has no socket that accepts geometry.`}
-                    className="flex w-full items-center gap-2 border-b rule px-3 py-1.5 text-left hover:bg-[var(--color-surface-2)] disabled:hover:bg-transparent"
+                    title={`${a.path}\n\n${socket}`}
+                    className="flex w-full items-center gap-2 border-b rule px-3 py-1.5 text-left hover:bg-[var(--color-surface-2)]"
                   >
                     <span
                       aria-hidden
                       className="h-2 w-2 shrink-0 rounded-full"
-                      style={{
-                        background: socket ? SOCKET_COLOR[socket] : "transparent",
-                        border: socket ? "none" : "1px dashed var(--color-muted)",
-                      }}
+                      style={{ background: SOCKET_COLOR[socket] }}
                     />
                     <span className="min-w-0 flex-1 truncate">{a.name}</span>
                     <span className="num shrink-0 text-[10px] text-[var(--color-muted)]">
