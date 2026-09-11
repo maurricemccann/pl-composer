@@ -32,7 +32,14 @@ export default function Page() {
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORE);
-      if (raw) setPiece(JSON.parse(raw));
+      if (raw) {
+        const p: Piece = JSON.parse(raw);
+        setPiece(p);
+        // Select the last shot on load. Without this, a restored piece comes back
+        // with nothing selected and clicking an asset silently does nothing — which
+        // reads as a broken library rather than "pick a shot first".
+        if (p.shots.length > 0) setSelected(p.shots[p.shots.length - 1].id);
+      }
     } catch {}
     setLoaded(true);
   }, []);
@@ -77,11 +84,16 @@ export default function Page() {
     setSelected((s) => (s === id ? null : s));
   };
 
+  /** Attach to the selected shot, or the last one if nothing is selected. Falling
+   *  back rather than returning early: a click that does nothing and says nothing is
+   *  indistinguishable from a broken asset list. */
   const attach = (a: Asset) => {
-    if (!selected) return;
-    const shot = piece.shots.find((s) => s.id === selected);
+    const target = selected ?? piece.shots[piece.shots.length - 1]?.id;
+    if (!target) return;
+    if (!selected) setSelected(target);
+    const shot = piece.shots.find((s) => s.id === target);
     if (!shot || shot.sourceIds.includes(a.id)) return;
-    patch(selected, { sourceIds: [...shot.sourceIds, a.id] });
+    patch(target, { sourceIds: [...shot.sourceIds, a.id] });
   };
 
   const total = pieceDuration(piece);
