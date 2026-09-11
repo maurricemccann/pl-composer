@@ -188,6 +188,9 @@ export function emitSpec(piece: Piece, assets: Asset[], now = new Date()): strin
     `target: ${piece.target}`,
     `fps: ${piece.fps}`,
     `resolution: ${piece.resolution}`,
+    // Omitted entirely when unset, so a cuts-only piece emits the byte-identical
+    // spec it always did and takes the renderer's stream-copy join (S264).
+    ...(piece.transition ? [`transition: ${piece.transition}`] : []),
     `duration: ${total.toFixed(1)}`,
     "---",
     "",
@@ -197,6 +200,10 @@ export function emitSpec(piece: Piece, assets: Asset[], now = new Date()): strin
     const n = String(i + 1).padStart(2, "0");
     out.push(`## Shot ${n} — ${shot.title}`);
     out.push(`duration: ${shot.duration.toFixed(1)}`);
+    // Shot 01 has nothing to come from, so its transition is never written — the
+    // renderer ignores it anyway, and emitting it would read as a fade from black
+    // that will not happen.
+    if (shot.transition && i > 0) out.push(`transition: ${shot.transition}`);
 
     const resolved = shot.sourceIds.map((id) => byId.get(id)).filter(Boolean) as Asset[];
     if (resolved.length === 0) {

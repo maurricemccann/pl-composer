@@ -314,14 +314,27 @@ pub fn emit_spec(piece: &Piece, assets: &[Asset], stamp: &str) -> String {
         format!("target: {}", piece.target),
         format!("fps: {}", piece.fps),
         format!("resolution: {}", piece.resolution),
-        format!("duration: {:.1}", total),
-        "---".into(),
-        String::new(),
     ];
+    // Omitted entirely when unset, so a cuts-only piece emits the byte-identical
+    // spec it always did and takes the renderer's stream-copy join (S264).
+    if let Some(t) = &piece.transition {
+        out.push(format!("transition: {t}"));
+    }
+    out.extend([
+        format!("duration: {:.1}", total),
+        "---".to_string(),
+        String::new(),
+    ]);
 
     for (i, shot) in piece.shots.iter().enumerate() {
         out.push(format!("## Shot {:02} — {}", i + 1, shot.title));
         out.push(format!("duration: {:.1}", shot.duration));
+        // Shot 01 has nothing to come from, so its transition is never written — the
+        // renderer ignores it anyway, and emitting it would read as a fade from black
+        // that will not happen.
+        if let (Some(t), true) = (&shot.transition, i > 0) {
+            out.push(format!("transition: {t}"));
+        }
 
         let resolved: Vec<&Asset> = shot.source_ids.iter().filter_map(|id| by_id.get(id)).collect();
         if resolved.is_empty() {
@@ -445,6 +458,7 @@ mod tests {
             id: "shot_01".into(),
             title: "t".into(),
             duration: 4.0,
+            transition: None,
             source_ids: vec!["aa".into(), "bb".into(), "cc".into()],
             nodes: None,
         };
@@ -468,6 +482,7 @@ mod tests {
             id: "s".into(),
             title: "t".into(),
             duration: 4.0,
+            transition: None,
             source_ids: vec!["mm".into()],
             nodes: None,
         };
@@ -487,10 +502,12 @@ mod tests {
             target: "t".into(),
             fps: 30.0,
             resolution: "1080x1920".into(),
+            transition: None,
             shots: vec![Shot {
                 id: "shot_01".into(),
                 title: "empty".into(),
                 duration: 4.0,
+                transition: None,
                 source_ids: vec![],
                 nodes: None,
             }],

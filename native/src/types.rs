@@ -170,6 +170,11 @@ pub struct Shot {
     pub id: String,
     pub title: String,
     pub duration: f64,
+    /// How this shot ENTERS — `dissolve 0.5`, `black`, `cut` (S264). Shot 01's is
+    /// ignored: it has nothing to come from, and a fade in from black is a different
+    /// decision that should be asked for, not inferred. Absent = inherit the piece's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<String>,
     /// Asset ids this shot draws on. The graph is what wires them; this is the summary
     /// the spine card renders without touching graph state.
     #[serde(rename = "sourceIds", default)]
@@ -180,12 +185,39 @@ pub struct Shot {
     pub nodes: Option<Vec<GraphNode>>,
 }
 
+/// How a shot enters — it crossfades out of the shot before it (S264).
+///
+/// Deliberately six words, not ffmpeg's fifty. Nearly all of the rest are gimmicks
+/// that would read as somebody else's brand. `dissolve` maps to ffmpeg's `fade`, not
+/// its `dissolve` — that one is a noisy random-pixel effect, which is not what the
+/// word means to anyone.
+pub const TRANSITIONS: [&str; 6] = ["cut", "dissolve", "black", "white", "wipe", "slide"];
+
+/// What each one does, for the picker — nobody should have to render to find out.
+pub fn transition_why(name: &str) -> &'static str {
+    match name {
+        "cut" => "Nothing. The next shot is simply there.",
+        "dissolve" => "One picture becomes the other.",
+        "black" => "Out through black, then in. The longest pause.",
+        "white" => "Out through white. Louder than black — use it once.",
+        "wipe" => "The next shot pushes up over this one.",
+        "slide" => "Both move together, upward.",
+        _ => "",
+    }
+}
+
+/// The house default when a piece asks for transitions without saying how long.
+pub const TRANSITION_SECONDS: f64 = 0.4;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Piece {
     pub piece: String,
     pub target: String,
     pub fps: f64,
     pub resolution: String,
+    /// Piece-wide default every shot inherits unless it overrides. Absent = all cuts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transition: Option<String>,
     #[serde(default)]
     pub shots: Vec<Shot>,
 }
@@ -197,6 +229,9 @@ impl Default for Piece {
             target: "remotion → openmontage".into(),
             fps: 30.0,
             resolution: "1080x1920".into(),
+            // Cuts by default. Transitions are a decision, not a house style — a
+            // new piece should not quietly arrive with crossfades nobody asked for.
+            transition: None,
             shots: Vec::new(),
         }
     }

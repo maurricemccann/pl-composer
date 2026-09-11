@@ -12,7 +12,9 @@
 use crate::bridge::{canvas_of, snarl_of, terminal_count};
 use crate::emit::{emit_spec, stamp_now};
 use crate::graph::{canvas_for, to_graph_nodes, GNodeData, NodeKind};
-use crate::types::{Asset, Manifest, Piece, Shot};
+use crate::types::{
+    transition_why, Asset, Manifest, Piece, Shot, TRANSITIONS, TRANSITION_SECONDS,
+};
 use crate::viewer::PlViewer;
 use egui_snarl::{ui::SnarlWidget, Snarl};
 use serde_json::Map;
@@ -26,6 +28,16 @@ const DEFAULT_RENDERER: &str = r"C:\dev\OpenMontage\projects\pl-curves\compose_r
 // Bare `python` on this machine resolves to miniforge, but naming the interpreter
 // explicitly means a PATH change cannot silently send the render to a different one.
 const DEFAULT_PYTHON: &str = r"C:\Users\maurr\miniforge3\python.exe";
+
+/// `"dissolve 0.5"` → `("dissolve", 0.5)`. A bare name takes the house default, and
+/// anything unparseable reads as a cut rather than throwing in the middle of a frame.
+fn split_transition(t: Option<&str>) -> (String, f64) {
+    let Some(t) = t else { return ("cut".into(), TRANSITION_SECONDS) };
+    let mut parts = t.split_whitespace();
+    let name = parts.next().unwrap_or("cut").to_string();
+    let secs = parts.next().and_then(|s| s.parse().ok()).unwrap_or(TRANSITION_SECONDS);
+    (name, secs)
+}
 
 pub struct App {
     piece: Piece,
@@ -308,6 +320,39 @@ impl eframe::App for App {
                 ui.label("res");
                 ui.add(egui::TextEdit::singleline(&mut self.piece.resolution).desired_width(100.0));
                 ui.separator();
+                // The piece-wide default. Absent means every boundary is a cut and the
+                // renderer stream-copies the join instead of re-encoding.
+                ui.label("cuts");
+                let (mut pname, mut psecs) = split_transition(self.piece.transition.as_deref());
+                let none = self.piece.transition.is_none();
+                let mut pchanged = false;
+                egui::ComboBox::from_id_salt("piece-trans")
+                    .selected_text(if none { "cut".to_string() } else { pname.clone() })
+                    .show_ui(ui, |ui| {
+                        for t in TRANSITIONS {
+                            let sel = if none { t == "cut" } else { pname == t };
+                            if ui.selectable_label(sel, t).on_hover_text(transition_why(t)).clicked() {
+                                pname = t.to_string();
+                                pchanged = true;
+                            }
+                        }
+                    });
+                if !none && pname != "cut" {
+                    if ui
+                        .add(egui::DragValue::new(&mut psecs).range(0.05..=3.0).speed(0.05).suffix("s"))
+                        .changed()
+                    {
+                        pchanged = true;
+                    }
+                }
+                if pchanged {
+                    self.piece.transition = if pname == "cut" {
+                        None
+                    } else {
+                        Some(format!("{pname} {psecs:.2}"))
+                    };
+                }
+                ui.separator();
                 ui.label(format!("{:.1}s total", self.piece.duration()));
             });
             ui.horizontal(|ui| {
@@ -416,6 +461,9 @@ impl eframe::App for App {
                     id: format!("shot_{n:02}"),
                     title: "untitled".into(),
                     duration: 4.0,
+                    // None means "inherit the piece's", which is a cut unless the
+                    // piece says otherwise. A new shot never invents a transition.
+                    transition: None,
                     source_ids: vec![],
                     nodes: None,
                 });
@@ -434,6 +482,51 @@ impl eframe::App for App {
                         ui.label("seconds");
                         ui.add(egui::DragValue::new(&mut s.duration).range(0.1..=600.0).speed(0.1));
                     });
+                    // Shot 01 has nothing to come from, so it gets no picker at all
+                    // rather than a disabled one that invites the question.
+                    if i > 0 {
+                        ui.horizontal(|ui| {
+                            ui.label("enters by");
+                            let (mut name, mut secs) = split_transition(s.transition.as_deref());
+                            let inherited = s.transition.is_none();
+                            let shown = if inherited { "(piece)".to_string() } else { name.clone() };
+                            let mut changed = false;
+                            egui::ComboBox::from_id_salt(("trans", i))
+                                .selected_text(shown)
+                                .show_ui(ui, |ui| {
+                                    if ui.selectable_label(inherited, "(piece)")
+                                        .on_hover_text("inherit the piece's default")
+                                        .clicked()
+                                    {
+                                        s.transition = None;
+                                    }
+                                    for t in TRANSITIONS {
+                                        if ui.selectable_label(!inherited && name == t, t)
+                                            .on_hover_text(transition_why(t))
+                                            .clicked()
+                                        {
+                                            name = t.to_string();
+                                            changed = true;
+                                        }
+                                    }
+                                });
+                            if !inherited && name != "cut" {
+                                if ui
+                                    .add(egui::DragValue::new(&mut secs).range(0.05..=3.0).speed(0.05).suffix("s"))
+                                    .changed()
+                                {
+                                    changed = true;
+                                }
+                            }
+                            if changed {
+                                s.transition = Some(if name == "cut" {
+                                    "cut".to_string()
+                                } else {
+                                    format!("{name} {secs:.2}")
+                                });
+                            }
+                        });
+                    }
                     // An untitled shot reaches the spec as "untitled" and stays that way
                     // in the finished file. Say it here, where it is still cheap to fix.
                     if s.title.trim().is_empty() || s.title == "untitled" {

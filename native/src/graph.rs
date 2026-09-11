@@ -773,6 +773,7 @@ mod tests {
             id: "shot_01".into(),
             title: "t".into(),
             duration: 4.0,
+            transition: None,
             source_ids: ids.iter().map(|s| s.to_string()).collect(),
             nodes: None,
         }

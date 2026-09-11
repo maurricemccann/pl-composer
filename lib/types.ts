@@ -112,11 +112,41 @@ export function assetSocket(kind: AssetKind): SocketType {
 
 /* ─────────────────────────── the piece ─────────────────────────── */
 
+/**
+ * How a shot enters — it crossfades out of the shot before it (S264).
+ *
+ * `cut` is the default and the honest one: most boundaries in this house want
+ * nothing. The rest exist because a cut between two stills reads as a jolt where a
+ * cut between two moving clips reads as an edit.
+ *
+ * Deliberately six words, not ffmpeg's fifty. Nearly all of the rest are gimmicks
+ * that would read as somebody else's brand. `dissolve` maps to ffmpeg's `fade`, not
+ * its `dissolve` — that one is a noisy random-pixel effect, which is not what the
+ * word means to anyone.
+ */
+export const TRANSITIONS = ["cut", "dissolve", "black", "white", "wipe", "slide"] as const;
+export type Transition = (typeof TRANSITIONS)[number];
+
+/** What each one does, for the picker — nobody should have to render to find out. */
+export const TRANSITION_WHY: Record<Transition, string> = {
+  cut: "Nothing. The next shot is simply there.",
+  dissolve: "One picture becomes the other.",
+  black: "Out through black, then in. The longest pause.",
+  white: "Out through white. Louder than black — use it once.",
+  wipe: "The next shot pushes up over this one.",
+  slide: "Both move together, upward.",
+};
+
+/** The house default when a piece asks for transitions without saying how long. */
+export const TRANSITION_SECONDS = 0.4;
+
 export interface Piece {
   piece: string;
   target: string;
   fps: number;
   resolution: string;
+  /** Piece-wide default every shot inherits unless it overrides. Absent = all cuts. */
+  transition?: string;
   shots: Shot[];
 }
 
@@ -135,6 +165,10 @@ export interface Shot {
   id: string;
   title: string;
   duration: number;
+  /** How this shot ENTERS — `dissolve 0.5`, `black`, `cut`. Shot 01's is ignored:
+   *  it has nothing to come from, and a fade in from black is a different decision
+   *  that should be asked for, not inferred. Absent = inherit the piece's. */
+  transition?: string;
   /** Asset ids this shot draws on. The graph is what wires them; this is the summary
    *  the spine card and the phone read-only view render without touching graph state. */
   sourceIds: string[];
