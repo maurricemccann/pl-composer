@@ -16,10 +16,29 @@ import {
   pieceDuration,
 } from "@/lib/types";
 
-const STORE = "pl-composer.piece.v1";
+/** { active, pieces: { id: Piece } } — more than one piece can exist (S263). */
+const STORE = "pl-composer.pieces.v1";
+/** The single-piece key this replaced. Read once, imported, never written again. */
+const LEGACY = "pl-composer.piece.v1";
+
+const newId = () => `p_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 
 export default function Page() {
-  const [piece, setPiece] = useState<Piece>(DEFAULT_PIECE);
+  const [pieces, setPieces] = useState<Record<string, Piece>>({});
+  const [activeId, setActiveId] = useState<string>("");
+  const [picking, setPicking] = useState(false);
+
+  const piece = pieces[activeId] ?? DEFAULT_PIECE;
+
+  /** Same signature the rest of this file already uses, so nothing else changes. */
+  const setPiece = useCallback(
+    (next: Piece | ((p: Piece) => Piece)) =>
+      setPieces((all) => {
+        const cur = all[activeId] ?? DEFAULT_PIECE;
+        return { ...all, [activeId]: typeof next === "function" ? next(cur) : next };
+      }),
+    [activeId],
+  );
   const [selected, setSelected] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -43,26 +62,67 @@ export default function Page() {
   // Per-viewer convenience only. The spec is the product; this is just so a piece
   // survives a refresh while it is being scored.
   useEffect(() => {
+    let all: Record<string, Piece> = {};
+    let active = "";
     try {
       const raw = localStorage.getItem(STORE);
       if (raw) {
-        const p: Piece = JSON.parse(raw);
-        setPiece(p);
-        // Select the last shot on load. Without this, a restored piece comes back
-        // with nothing selected and clicking an asset silently does nothing — which
-        // reads as a broken library rather than "pick a shot first".
-        if (p.shots.length > 0) setSelected(p.shots[p.shots.length - 1].id);
+        const saved = JSON.parse(raw) as { active?: string; pieces?: Record<string, Piece> };
+        all = saved.pieces ?? {};
+        active = saved.active && all[saved.active] ? saved.active : Object.keys(all)[0] ?? "";
+      }
+      // One-time import of the single-piece era. Read, never written back — but the old
+      // key is LEFT IN PLACE rather than deleted, so a mistake here costs nothing.
+      if (!Object.keys(all).length) {
+        const old = localStorage.getItem(LEGACY);
+        if (old) {
+          const p: Piece = JSON.parse(old);
+          active = newId();
+          all = { [active]: p };
+        }
       }
     } catch {}
+
+    if (!Object.keys(all).length) {
+      active = newId();
+      all = { [active]: DEFAULT_PIECE };
+    }
+    setPieces(all);
+    setActiveId(active);
+    // Select the last shot on load. Without this, a restored piece comes back with
+    // nothing selected and clicking an asset silently does nothing — which reads as a
+    // broken library rather than "pick a shot first".
+    const p = all[active];
+    if (p?.shots.length) setSelected(p.shots[p.shots.length - 1].id);
     setLoaded(true);
   }, []);
 
   useEffect(() => {
-    if (!loaded) return;
+    if (!loaded || !activeId) return;
     try {
-      localStorage.setItem(STORE, JSON.stringify(piece));
+      localStorage.setItem(STORE, JSON.stringify({ active: activeId, pieces }));
     } catch {}
-  }, [piece, loaded]);
+  }, [pieces, activeId, loaded]);
+
+  const newPiece = () => {
+    const id = newId();
+    setPieces((all) => ({
+      ...all,
+      [id]: { ...DEFAULT_PIECE, piece: `untitled-${Object.keys(all).length + 1}`, shots: [] },
+    }));
+    setActiveId(id);
+    setSelected(null);
+    setGraphFor(null);
+    setPicking(false);
+  };
+
+  const openPiece = (id: string) => {
+    setActiveId(id);
+    const p = pieces[id];
+    setSelected(p?.shots.length ? p.shots[p.shots.length - 1].id : null);
+    setGraphFor(null);
+    setPicking(false);
+  };
 
   const addShot = () => {
     const n = piece.shots.length + 1;
@@ -124,6 +184,46 @@ export default function Page() {
           className="min-w-0 flex-1 bg-transparent text-[22px] leading-none focus:outline-none"
           style={{ fontFamily: "var(--font-display)" }}
         />
+        {/* More than one piece can exist now. Before this, starting a second piece
+            silently destroyed the first — the single worst thing on a board whose
+            whole job is holding work in progress. */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setPicking((v) => !v)}
+            className="border rule px-2 py-1 text-[11px] hover:bg-[var(--color-surface-2)]"
+            title="Switch piece"
+          >
+            pieces <span className="num opacity-60">{Object.keys(pieces).length}</span> ▾
+          </button>
+          {picking && (
+            <ul className="absolute left-0 top-full z-30 mt-1 max-h-[60vh] w-[260px] overflow-auto border rule bg-[var(--color-surface)] shadow-lg">
+              {Object.entries(pieces).map(([id, p]) => (
+                <li key={id}>
+                  <button
+                    onClick={() => openPiece(id)}
+                    className={
+                      "flex w-full items-baseline justify-between gap-2 px-2 py-1.5 text-left hover:bg-[var(--color-surface-2)] " +
+                      (id === activeId ? "text-[var(--color-gold-dim)]" : "")
+                    }
+                  >
+                    <span className="min-w-0 flex-1 truncate text-[12px]">{p.piece}</span>
+                    <span className="num shrink-0 text-[10px] text-[var(--color-muted)]">
+                      {p.shots.length} sh · {pieceDuration(p).toFixed(1)}s
+                    </span>
+                  </button>
+                </li>
+              ))}
+              <li className="border-t rule">
+                <button
+                  onClick={newPiece}
+                  className="w-full px-2 py-1.5 text-left text-[12px] text-[var(--color-gold-dim)] hover:bg-[var(--color-surface-2)]"
+                >
+                  + New piece
+                </button>
+              </li>
+            </ul>
+          )}
+        </div>
         <Field label="shots" value={String(piece.shots.length)} />
         <Field label="duration" value={`${total.toFixed(1)}s`} />
         <Field label="fps" value={String(piece.fps)} />
