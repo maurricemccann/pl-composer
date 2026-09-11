@@ -26,6 +26,16 @@ export default function Page() {
   const [spec, setSpec] = useState<string | null>(null);
   /** Which shot's graph is open. Desktop only — the spec forbids a canvas on phone. */
   const [graphFor, setGraphFor] = useState<string | null>(null);
+  /** id -> data URI. One fetch, shared by the library and the spine. A failure here
+   *  costs pictures, never assets — the board stays usable without thumbnails. */
+  const [thumbs, setThumbs] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    fetch("/api/thumbs")
+      .then((r) => r.json() as Promise<{ thumbs?: Record<string, string> }>)
+      .then((j) => setThumbs(j?.thumbs ?? {}))
+      .catch(() => setThumbs({}));
+  }, []);
 
   const onManifest = useCallback((m: Manifest) => setAssets(m.assets), []);
   const byId = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
@@ -132,7 +142,7 @@ export default function Page() {
         {/* ── Library. Desktop only: the spec forbids a graph on phone, and an
               asset browser beside a spine is the same density problem. ──── */}
         <aside className="hidden w-[300px] shrink-0 border-r rule md:block">
-          <AssetBrowser onPick={attach} onLoad={onManifest} />
+          <AssetBrowser onPick={attach} onLoad={onManifest} thumbs={thumbs} />
         </aside>
 
         {/* ── The spine, and under it the graph for whichever card is open ── */}
@@ -173,6 +183,7 @@ export default function Page() {
                   graphOpen={graphFor === s.id}
                   compact={openShot !== null}
                   byId={byId}
+                  thumbs={thumbs}
                   onSelect={() => setSelected(s.id)}
                   onOpenGraph={() => {
                     setSelected(s.id);
@@ -239,6 +250,7 @@ function ShotCard({
   graphOpen,
   compact,
   byId,
+  thumbs,
   onSelect,
   onOpenGraph,
   onPatch,
@@ -255,6 +267,7 @@ function ShotCard({
   /** The spine becomes a strip once a graph is open — same cards, less of them shown. */
   compact: boolean;
   byId: Map<string, Asset>;
+  thumbs: Record<string, string>;
   onSelect: () => void;
   onOpenGraph: () => void;
   onPatch: (n: Partial<Shot>) => void;
@@ -309,11 +322,26 @@ function ShotCard({
       {/* Where a proxy thumbnail lands in build order step 6. Until then it holds
           its space rather than collapsing the card's proportions later — except in
           the strip, where the graph below is what the eye is on. */}
-      {!compact && (
-        <div className="flex aspect-video items-center justify-center bg-[var(--color-surface-2)] text-[10px] text-[var(--color-muted)]">
-          no preview
-        </div>
-      )}
+      {/* The card's picture is its FIRST visual source — the one the derived wiring
+          makes the base, so the card shows what the shot is actually built on rather
+          than a placeholder. */}
+      {!compact && (() => {
+        const firstVisual = shot.sourceIds.find(
+          (id) => byId.get(id) && byId.get(id)!.kind !== "audio" && thumbs[id],
+        );
+        return firstVisual ? (
+          <img
+            src={thumbs[firstVisual]}
+            alt=""
+            className="aspect-video w-full object-cover"
+            style={{ background: "var(--color-well)" }}
+          />
+        ) : (
+          <div className="flex aspect-video items-center justify-center bg-[var(--color-surface-2)] text-[10px] text-[var(--color-muted)]">
+            {shot.sourceIds.length === 0 ? "no sources" : "no preview"}
+          </div>
+        );
+      })()}
 
       <div className="p-2">
         <input

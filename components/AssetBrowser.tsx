@@ -23,12 +23,16 @@ function bytes(n: number): string {
 export default function AssetBrowser({
   onPick,
   onLoad,
+  thumbs: thumbsProp,
 }: {
   onPick?: (a: Asset) => void;
   /** Hands the loaded manifest up so the page can resolve ids when emitting the
    *  spec. One fetch, one owner — the page does not re-request it. */
   onLoad?: (m: Manifest) => void;
+  /** id -> data URI, fetched once by the page and shared with the spine. */
+  thumbs?: Record<string, string>;
 }) {
+  const thumbs = thumbsProp ?? {};
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [error, setError] = useState<{ error: string; detail?: string } | null>(null);
   const [q, setQ] = useState("");
@@ -163,11 +167,28 @@ export default function AssetBrowser({
                     title={`${a.path}\n\n${socket}`}
                     className="flex w-full items-center gap-2 border-b rule px-3 py-1.5 text-left hover:bg-[var(--color-surface-2)]"
                   >
-                    <span
-                      aria-hidden
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ background: SOCKET_COLOR[socket] }}
-                    />
+                    {/* The picture, where there is one. This is the whole point of the
+                        preview layer: a black-ink SVG and a glowing one are the same
+                        filename until you can see them. Models and the 3d catalog have
+                        no cheap thumbnail and keep the typed dot. */}
+                    {thumbs[a.id] ? (
+                      <img
+                        src={thumbs[a.id]}
+                        alt=""
+                        loading="lazy"
+                        className="h-7 w-7 shrink-0 rounded-[2px] border rule object-cover"
+                        style={{ background: "var(--color-well)" }}
+                      />
+                    ) : (
+                      <span
+                        aria-hidden
+                        title={socket}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] border rule text-[8px] uppercase tracking-wide"
+                        style={{ color: SOCKET_COLOR[socket] }}
+                      >
+                        {socket.slice(0, 3)}
+                      </span>
+                    )}
                     <span className="min-w-0 flex-1 truncate">{a.name}</span>
                     <span className="num shrink-0 text-[10px] text-[var(--color-muted)]">
                       {a.ext.replace(".", "")}
