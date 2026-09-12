@@ -12,9 +12,87 @@ import {
   type Shot,
   DEFAULT_PIECE,
   SOCKET_COLOR,
+  TRANSITIONS,
+  TRANSITION_SECONDS,
+  TRANSITION_WHY,
+  type Transition,
   assetSocket,
   pieceDuration,
 } from "@/lib/types";
+
+/**
+ * S267 — the transition picker the web board never had.
+ *
+ * `lib/types.ts` has carried `TRANSITIONS`, `TRANSITION_WHY` and `TRANSITION_SECONDS` since
+ * transitions shipped, and `lib/emit.ts` already writes both `transition:` lines — piece-wide
+ * and per-shot. Only the UI was missing, so the board could not express its own spec format
+ * and the native app could. `TRANSITION_WHY`'s own comment says it exists "for the picker."
+ *
+ * A transition is stored as a string because the spec allows a duration (`dissolve 0.5`).
+ * The select sets the word; the seconds box sets the number and is only shown when the word
+ * is one that has a duration — `cut` has nothing to time.
+ */
+function TransitionPicker({
+  value,
+  onChange,
+  label,
+  inheritLabel,
+  disabled,
+  disabledWhy,
+}: {
+  value?: string;
+  onChange: (next: string | undefined) => void;
+  label: string;
+  /** What the empty option means here — a piece inherits nothing, a shot inherits the piece. */
+  inheritLabel: string;
+  disabled?: boolean;
+  disabledWhy?: string;
+}) {
+  const [word = "", secsRaw] = (value ?? "").trim().split(/\s+/);
+  const secs = secsRaw ? Number(secsRaw) : undefined;
+  const timed = word && word !== "cut";
+
+  return (
+    <label className="flex items-center gap-1" title={disabled ? disabledWhy : TRANSITION_WHY[word as Transition]}>
+      <span className="text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+        {label}
+      </span>
+      <select
+        value={word}
+        disabled={disabled}
+        onChange={(e) => {
+          const w = e.target.value;
+          if (!w) return onChange(undefined);
+          // Carry the existing number across a word change, but never onto `cut`.
+          onChange(w === "cut" || secs === undefined ? w : `${w} ${secs}`);
+        }}
+        aria-label={label}
+        className="border rule bg-[var(--color-bg)] px-1 py-0.5 text-[11px] focus:outline-none disabled:opacity-40"
+      >
+        <option value="">{inheritLabel}</option>
+        {TRANSITIONS.map((t) => (
+          <option key={t} value={t} title={TRANSITION_WHY[t]}>
+            {t}
+          </option>
+        ))}
+      </select>
+      {timed && !disabled && (
+        <input
+          type="number"
+          min={0.1}
+          step={0.1}
+          value={secs ?? TRANSITION_SECONDS}
+          onChange={(e) => {
+            const n = Math.max(0.1, Number(e.target.value) || TRANSITION_SECONDS);
+            onChange(`${word} ${n}`);
+          }}
+          aria-label={`${label} seconds`}
+          className="num w-12 border rule bg-[var(--color-bg)] px-1 py-0.5 text-[11px] focus:outline-none"
+        />
+      )}
+    </label>
+  );
+}
 
 /** { active, pieces: { id: Piece } } — more than one piece can exist (S263). */
 const STORE = "pl-composer.pieces.v1";
@@ -231,6 +309,16 @@ export default function Page() {
           className="min-w-0 flex-1 bg-transparent text-[22px] leading-none focus:outline-none"
           style={{ fontFamily: "var(--font-display)" }}
         />
+        {/* S267 — the piece-wide default every shot inherits unless it overrides.
+            Absent means all cuts, which is what the emitter already assumed. */}
+        <div className="shrink-0">
+          <TransitionPicker
+            label="transition"
+            inheritLabel="all cuts"
+            value={piece.transition}
+            onChange={(next) => setPiece((p) => ({ ...p, transition: next }))}
+          />
+        </div>
         {/* More than one piece can exist now. Before this, starting a second piece
             silently destroyed the first — the single worst thing on a board whose
             whole job is holding work in progress. */}
@@ -356,6 +444,7 @@ export default function Page() {
                   index={i}
                   first={i === 0}
                   last={i === piece.shots.length - 1}
+                  pieceTransition={piece.transition}
                   selected={selected === s.id}
                   graphOpen={graphFor === s.id}
                   compact={openShot !== null}
@@ -424,6 +513,7 @@ function ShotCard({
   index,
   first,
   last,
+  pieceTransition,
   selected,
   graphOpen,
   compact,
@@ -441,6 +531,8 @@ function ShotCard({
   index: number;
   first: boolean;
   last: boolean;
+  /** The piece default, so the shot's "inherit" option can name what it inherits. */
+  pieceTransition?: string;
   selected: boolean;
   graphOpen: boolean;
   /** The spine becomes a strip once a graph is open — same cards, less of them shown. */
@@ -553,6 +645,22 @@ function ShotCard({
           <span className="num text-[10px] text-[var(--color-muted)]">
             {shot.sourceIds.length} src
           </span>
+        </div>
+
+        {/* S267 — how this shot ENTERS. Shot 01 is disabled rather than hidden: the
+            emitter deliberately never writes a transition for it (it has nothing to come
+            from, and a fade in from black is a different decision that should be asked
+            for), and a control that silently did nothing would be worse than one that
+            says why. */}
+        <div className="mt-1.5">
+          <TransitionPicker
+            label="in"
+            inheritLabel={pieceTransition ? `inherit (${pieceTransition})` : "inherit (cut)"}
+            value={shot.transition}
+            onChange={(next) => onPatch({ transition: next })}
+            disabled={first}
+            disabledWhy="Shot 01 has nothing to come from — a fade in from black is its own decision, asked for explicitly."
+          />
         </div>
 
         {/* A shot longer than its source is not an error — the renderer holds the last
