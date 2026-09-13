@@ -88,9 +88,17 @@ export function deriveGraph(shot: Shot, byId: Map<string, Asset>): GraphNode[] {
     if (media.length === 1) {
       // A single source is still a layer — one base, no overlay. Emitting it keeps
       // every shot the same shape for the CLI instead of a special case.
+      //
+      // `blend` here has no overlay to act on — the CLI's `layer` op only calls
+      // `composite()` when `overlay` is set, so this value renders as pure `base_clip`
+      // either way. But it is not harmless: `normal` is compose_render.py's own
+      // documented broken mode (a transparent region becomes opaque black), and this
+      // is dead data only until someone drags a second source onto the shot, at which
+      // point it becomes live and wrong. `screen` matches what every other derived
+      // default already uses (S263 use-notes §1.2).
       nodes.push({
         op: "layer",
-        args: { base: baseRef, blend: "normal", opacity: 1.0, ...(bind ? { bind } : {}) },
+        args: { base: baseRef, blend: "screen", opacity: 1.0, ...(bind ? { bind } : {}) },
       });
     }
   }

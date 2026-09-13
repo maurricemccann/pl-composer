@@ -62,6 +62,17 @@ roundTrip(["img_1183", "crv_0142", "aud_0007"], "audio drives opacity");
 roundTrip(["mdl_0031"], "model alone (render stage is explicit)");
 roundTrip(["img_1183", "crv_0142", "aud_0007", "mdl_0031"], "everything at once");
 
+// A single-source shot's layer has no overlay for a blend to act on, but the
+// derived default still must not be `normal` — the CLI's own documented broken
+// mode (S263 use-notes §1.2) — since it stops being dead the moment a second
+// source lands on the same shot.
+{
+  const g = deriveGraph(shot(["img_1183"]), byId);
+  const layer = g.find((n) => n.op === "layer")!;
+  assert.equal(layer.args.blend, "screen", "single-source default must not be normal");
+  console.log("  ok  single-source layer derives blend: screen, not normal");
+}
+
 // The render stage must never be skipped: a Model may not be used as pixels.
 {
   const s = shot(["img_1183", "mdl_0031"]);

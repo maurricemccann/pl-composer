@@ -175,9 +175,14 @@ pub fn derive_graph(shot: &Shot, by_id: &HashMap<String, Asset>) -> Vec<GraphNod
         if media.len() == 1 {
             // A single source is still a layer — one base, no overlay. Emitting it keeps
             // every shot the same shape for the CLI instead of a special case.
+            //
+            // `blend` has no overlay to act on here, so it renders as `base_clip` either
+            // way — but it stops being dead the moment a second source lands on this
+            // shot, and `normal` is the CLI's own documented broken mode. `screen`
+            // matches every other derived default (S263 use-notes §1.2).
             let mut args = map(vec![
                 ("base", s(&base_ref)),
-                ("blend", s("normal")),
+                ("blend", s("screen")),
                 ("opacity", num(1.0)),
             ]);
             if let Some(b) = &bind {
@@ -492,7 +497,7 @@ mod tests {
         // A single source is still a layer, and it references the RENDER, not the model.
         assert_eq!(g[1].op, "layer");
         assert_eq!(g[1].arg("base").unwrap(), &s("m_mm"));
-        assert_eq!(g[1].arg("blend").unwrap(), &s("normal"));
+        assert_eq!(g[1].arg("blend").unwrap(), &s("screen"));
     }
 
     #[test]
