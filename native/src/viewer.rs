@@ -12,10 +12,10 @@
 use crate::bridge::{canvas_of, port_name};
 use crate::graph::{can_connect, default_args, kind_spec, next_out, output_type, NodeKind, ParamType, ADDABLE_KINDS};
 use crate::types::Asset;
-use egui::{Color32, Ui};
+use egui::{Color32, Pos2, Ui};
 use egui_snarl::{
-    ui::{PinInfo, SnarlViewer},
-    InPin, NodeId, OutPin, Snarl,
+    ui::{AnyPins, PinInfo, SnarlViewer},
+    InPin, InPinId, NodeId, OutPin, OutPinId, Snarl,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -262,6 +262,68 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
                     },
                 );
                 ui.close();
+            }
+        }
+    }
+
+    /// Blender's habit: drag a wire into empty space and get a menu of nodes that fit
+    /// the wire you were already holding, wired in on selection (§ RESEARCH — Blender
+    /// Node Editor for PL Composer, P0).
+    fn has_dropped_wire_menu(&mut self, _src_pins: AnyPins, _snarl: &mut Snarl<crate::graph::GNodeData>) -> bool {
+        true
+    }
+
+    fn show_dropped_wire_menu(
+        &mut self,
+        pos: Pos2,
+        ui: &mut Ui,
+        src_pins: AnyPins,
+        snarl: &mut Snarl<crate::graph::GNodeData>,
+    ) {
+        ui.label("add");
+        match src_pins {
+            AnyPins::Out(pins) => {
+                let Some(src) = pins.first().copied() else { return };
+                let Some(src_type) = output_type(&snarl[src.node], self.by_id) else { return };
+                for k in ADDABLE_KINDS {
+                    let spec = kind_spec(k);
+                    let Some(input_idx) = spec.inputs.iter().position(|p| p.accepts.contains(&src_type)) else {
+                        continue;
+                    };
+                    if ui.button(spec.label).on_hover_text(spec.why).clicked() {
+                        let existing: Vec<crate::graph::GNode> = canvas_of(snarl).0;
+                        let out = next_out(k, &existing, None);
+                        let new_node = snarl.insert_node(
+                            pos,
+                            crate::graph::GNodeData { kind: k, asset_id: None, out, args: default_args(k) },
+                        );
+                        snarl.connect(src, InPinId { node: new_node, input: input_idx });
+                        ui.close();
+                        return;
+                    }
+                }
+            }
+            AnyPins::In(pins) => {
+                let Some(dst) = pins.first().copied() else { return };
+                let accepts = &kind_spec(snarl[dst.node].kind).inputs[dst.input].accepts;
+                for k in ADDABLE_KINDS {
+                    let Some(out_type) = kind_spec(k).output else { continue };
+                    if !accepts.contains(&out_type) {
+                        continue;
+                    }
+                    let spec = kind_spec(k);
+                    if ui.button(spec.label).on_hover_text(spec.why).clicked() {
+                        let existing: Vec<crate::graph::GNode> = canvas_of(snarl).0;
+                        let out = next_out(k, &existing, None);
+                        let new_node = snarl.insert_node(
+                            pos,
+                            crate::graph::GNodeData { kind: k, asset_id: None, out, args: default_args(k) },
+                        );
+                        snarl.connect(OutPinId { node: new_node, output: 0 }, dst);
+                        ui.close();
+                        return;
+                    }
+                }
             }
         }
     }

@@ -16,7 +16,10 @@ use crate::types::{
     transition_why, Asset, Manifest, Piece, Shot, TRANSITIONS, TRANSITION_SECONDS,
 };
 use crate::viewer::PlViewer;
-use egui_snarl::{ui::SnarlWidget, Snarl};
+use egui_snarl::{
+    ui::{SnarlStyle, SnarlWidget},
+    Snarl,
+};
 use serde_json::Map;
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader};
@@ -116,6 +119,10 @@ impl App {
     }
 
     fn load_piece(&mut self) {
+        if self.piece_path.trim().is_empty() {
+            self.status = "no piece open yet — type a path or start a new one".into();
+            return;
+        }
         match std::fs::read_to_string(&self.piece_path)
             .map_err(|e| e.to_string())
             .and_then(|raw| serde_json::from_str::<Piece>(&raw).map_err(|e| e.to_string()))
@@ -570,8 +577,13 @@ impl eframe::App for App {
                 return;
             }
             let mut viewer = PlViewer { by_id: &self.by_id, last_refusal: self.refusal.take() };
+            let style = SnarlStyle {
+                collapsible: Some(true),
+                ..Default::default()
+            };
             SnarlWidget::new()
                 .id(egui::Id::new("pl-canvas"))
+                .style(style)
                 .show(&mut self.snarl, &mut viewer, ui);
             self.refusal = viewer.last_refusal;
         });
