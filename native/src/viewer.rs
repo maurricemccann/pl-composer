@@ -10,8 +10,8 @@
 //! colour, so a dense graph reads at a glance instead of being decoded.
 
 use crate::bridge::{canvas_of, port_name};
-use crate::graph::{can_connect, default_args, kind_spec, next_out, output_type, NodeKind, ParamType, ADDABLE_KINDS};
-use crate::types::Asset;
+use crate::graph::{can_connect, default_args, kind_spec, next_out, output_type, GNodeData, NodeKind, ParamType, ADDABLE_KINDS};
+use crate::types::{Asset, SocketType};
 use egui::{Color32, Pos2, Ui};
 use egui_snarl::{
     ui::{AnyPins, PinInfo, SnarlViewer},
@@ -64,6 +64,32 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
         } else {
             1
         }
+    }
+
+    /// A dense graph reads at a glance in the founder's own reference screenshots
+    /// (Blender's geometry nodes, Whimsy) because the HEADER, not just the pin, carries
+    /// colour. Reusing the socket palette rather than inventing a second one: the header
+    /// previews what the node produces — a Shot terminal produces nothing (`output_type`
+    /// is `None`), but it IS what `SocketType::Shot` names, so it gets that red.
+    fn header_frame(
+        &mut self,
+        default: egui::Frame,
+        node: NodeId,
+        _inputs: &[InPin],
+        _outputs: &[OutPin],
+        snarl: &Snarl<GNodeData>,
+    ) -> egui::Frame {
+        let data = &snarl[node];
+        let t = if data.kind == NodeKind::Shot {
+            SocketType::Shot
+        } else {
+            match output_type(data, self.by_id) {
+                Some(t) => t,
+                None => return default,
+            }
+        };
+        let [r, g, b] = t.rgb();
+        default.fill(Color32::from_rgba_unmultiplied(r, g, b, 46))
     }
 
     fn show_input(
