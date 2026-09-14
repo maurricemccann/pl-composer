@@ -46,7 +46,6 @@ const SURFACE: egui::Color32 = egui::Color32::from_rgb(0xfd, 0xf9, 0xf1);
 const SURFACE_2: egui::Color32 = egui::Color32::from_rgb(0xf5, 0xef, 0xe2);
 const GOLD: egui::Color32 = egui::Color32::from_rgb(0xc9, 0xa8, 0x4c);
 const GOLD_DIM: egui::Color32 = egui::Color32::from_rgb(0x8a, 0x72, 0x35);
-const TEXT: egui::Color32 = egui::Color32::from_rgb(0x1a, 0x15, 0x10);
 const LINE: egui::Color32 = egui::Color32::from_rgba_premultiplied(0xa0, 0x8c, 0x6e, 56);
 
 /// Installs the house look. Called once at startup — an internal tool reuses pl-os's
@@ -66,7 +65,10 @@ fn install_house_look(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 
     let mut v = egui::Visuals::light();
-    v.override_text_color = Some(TEXT);
+    // Deliberately NOT `override_text_color`: that forces one colour everywhere,
+    // including inside the dark ink well (§11) where it read as near-invisible dark
+    // ink on dark ink. `Visuals::light()`'s own per-widget text colour is already dark
+    // enough on the cream chrome; the canvas gets its own explicit NODE_TEXT in viewer.rs.
     v.panel_fill = BG;
     v.window_fill = SURFACE;
     v.extreme_bg_color = SURFACE_2; // text-edit / scroll-area wells

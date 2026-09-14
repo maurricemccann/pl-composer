@@ -31,6 +31,11 @@ fn col(rgb: [u8; 3]) -> Color32 {
     Color32::from_rgb(rgb[0], rgb[1], rgb[2])
 }
 
+// app.rs deliberately stopped forcing text colour app-wide (it read as dark ink on
+// dark ink here) — the ink well supplies its own, matching app/globals.css tokens.
+const NODE_TEXT: Color32 = Color32::from_rgb(0xf2, 0xec, 0xe0); // --color-node-text
+const NODE_DIM: Color32 = Color32::from_rgb(0x9a, 0x8d, 0x78); // --color-node-dim
+
 impl PlViewer<'_> {
     fn asset_of(&self, data: &crate::graph::GNodeData) -> Option<&Asset> {
         data.asset_id.as_ref().and_then(|id| self.by_id.get(id))
@@ -64,6 +69,21 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
         } else {
             1
         }
+    }
+
+    /// Default `show_header` is a plain `ui.label`, which inherits whatever the
+    /// ambient text colour is — dark ink, illegible on the ink well. Explicit colour,
+    /// not a second Visuals override, so the fix stays scoped to the canvas.
+    fn show_header(
+        &mut self,
+        node: NodeId,
+        _inputs: &[InPin],
+        _outputs: &[OutPin],
+        ui: &mut Ui,
+        snarl: &mut Snarl<crate::graph::GNodeData>,
+    ) {
+        let title = self.title(&snarl[node]);
+        ui.colored_label(NODE_TEXT, title);
     }
 
     /// A dense graph reads at a glance in the founder's own reference screenshots
@@ -101,7 +121,7 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
         let data = &snarl[pin.id.node];
         let spec = kind_spec(data.kind);
         let p = &spec.inputs[pin.id.input];
-        ui.label(p.label);
+        ui.colored_label(NODE_DIM, p.label);
         // A port wears the colour of what it accepts. Where a port takes two types
         // (Media or Curve) the first is the one it is really for.
         PinInfo::circle().with_fill(col(p.accepts[0].rgb()))
@@ -116,11 +136,11 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
         let data = &snarl[pin.id.node];
         match output_type(data, self.by_id) {
             Some(t) => {
-                ui.label(t.label());
+                ui.colored_label(NODE_DIM, t.label());
                 PinInfo::circle().with_fill(col(t.rgb()))
             }
             None => {
-                ui.label("—");
+                ui.colored_label(NODE_DIM, "—");
                 PinInfo::circle().with_fill(Color32::from_gray(90))
             }
         }
@@ -168,13 +188,17 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
         ui: &mut Ui,
         snarl: &mut Snarl<crate::graph::GNodeData>,
     ) {
+        // Scoped to this node's body Ui only — DragValue/ComboBox draw their own text
+        // using the ambient style, and without this it inherits dark-ink-on-dark-node.
+        ui.style_mut().visuals.override_text_color = Some(NODE_TEXT);
+
         let kind = snarl[node].kind;
         let params = kind_spec(kind).params;
         let args = &mut snarl[node].args;
 
         for p in &params {
             ui.horizontal(|ui| {
-                ui.label(p.label);
+                ui.colored_label(NODE_DIM, p.label);
                 match &p.ty {
                     ParamType::Number { min, max, step } => {
                         let mut v = args.get(p.key).and_then(Value::as_f64).unwrap_or(0.0);
