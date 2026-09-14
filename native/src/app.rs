@@ -32,6 +32,59 @@ const DEFAULT_RENDERER: &str = r"C:\dev\OpenMontage\projects\pl-curves\compose_r
 // explicitly means a PATH change cannot silently send the render to a different one.
 const DEFAULT_PYTHON: &str = r"C:\Users\maurr\miniforge3\python.exe";
 
+/// Cormorant Garamond, the house display face (`pl-os` `--font-display`). Packaged as a
+/// variable font under the plain name "Cormorant" — its own name table confirms it IS
+/// Cormorant Garamond (`CormorantGaramond-Regular`/`-Medium`/…), just not split into
+/// per-weight static files. No new download: already vendored for `pl-curves`.
+const DISPLAY_FONT: &[u8] = include_bytes!("../assets/fonts/Cormorant-Regular.ttf");
+const DISPLAY_FAMILY: &str = "display";
+
+// pl-os/app/globals.css — the inner-tongue palette this app conforms to rather than
+// inventing its own (Two-Tongue Design Standard: internal tools follow pl-os).
+const BG: egui::Color32 = egui::Color32::from_rgb(0xfa, 0xf7, 0xf0);
+const SURFACE: egui::Color32 = egui::Color32::from_rgb(0xfd, 0xf9, 0xf1);
+const SURFACE_2: egui::Color32 = egui::Color32::from_rgb(0xf5, 0xef, 0xe2);
+const GOLD: egui::Color32 = egui::Color32::from_rgb(0xc9, 0xa8, 0x4c);
+const GOLD_DIM: egui::Color32 = egui::Color32::from_rgb(0x8a, 0x72, 0x35);
+const TEXT: egui::Color32 = egui::Color32::from_rgb(0x1a, 0x15, 0x10);
+const LINE: egui::Color32 = egui::Color32::from_rgba_premultiplied(0xa0, 0x8c, 0x6e, 56);
+
+/// Installs the house look. Called once at startup — an internal tool reuses pl-os's
+/// icon (`main.rs`) and typography/palette rather than shipping stock egui gray.
+fn install_house_look(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    fonts
+        .font_data
+        .insert(DISPLAY_FAMILY.into(), egui::FontData::from_static(DISPLAY_FONT).into());
+    // A dedicated family, opt-in per widget — body text and controls stay on egui's
+    // bundled default rather than reflowing the whole app onto a display serif.
+    fonts
+        .families
+        .entry(egui::FontFamily::Name(DISPLAY_FAMILY.into()))
+        .or_default()
+        .insert(0, DISPLAY_FAMILY.into());
+    ctx.set_fonts(fonts);
+
+    let mut v = egui::Visuals::light();
+    v.override_text_color = Some(TEXT);
+    v.panel_fill = BG;
+    v.window_fill = SURFACE;
+    v.extreme_bg_color = SURFACE_2; // text-edit / scroll-area wells
+    v.faint_bg_color = SURFACE_2;
+    v.widgets.noninteractive.bg_fill = SURFACE;
+    v.widgets.noninteractive.bg_stroke.color = LINE;
+    v.widgets.inactive.bg_fill = SURFACE_2;
+    v.widgets.inactive.bg_stroke.color = LINE;
+    v.widgets.hovered.bg_fill = SURFACE_2;
+    v.widgets.hovered.bg_stroke.color = GOLD;
+    v.widgets.active.bg_fill = GOLD.linear_multiply(0.22);
+    v.widgets.active.bg_stroke.color = GOLD;
+    v.selection.bg_fill = GOLD.linear_multiply(0.35);
+    v.selection.stroke.color = GOLD_DIM;
+    v.hyperlink_color = GOLD_DIM;
+    ctx.set_visuals(v);
+}
+
 /// `"dissolve 0.5"` → `("dissolve", 0.5)`. A bare name takes the house default, and
 /// anything unparseable reads as a cut rather than throwing in the middle of a frame.
 fn split_transition(t: Option<&str>) -> (String, f64) {
@@ -90,7 +143,8 @@ impl Default for App {
 }
 
 impl App {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        install_house_look(&cc.egui_ctx);
         let mut app = App::default();
         app.load_manifest();
         app
@@ -318,10 +372,22 @@ impl eframe::App for App {
 
         egui::containers::Panel::top("top").show(ui, |ui| {
             ui.horizontal(|ui| {
-                ui.heading("PL Composer");
+                ui.label(
+                    egui::RichText::new("PL Composer")
+                        .family(egui::FontFamily::Name(DISPLAY_FAMILY.into()))
+                        .size(22.0)
+                        .color(GOLD_DIM),
+                );
                 ui.separator();
                 ui.label("piece");
-                ui.add(egui::TextEdit::singleline(&mut self.piece.piece).desired_width(160.0));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.piece.piece)
+                        .desired_width(160.0)
+                        .font(egui::FontSelection::FontId(egui::FontId::new(
+                            17.0,
+                            egui::FontFamily::Name(DISPLAY_FAMILY.into()),
+                        ))),
+                );
                 ui.label("fps");
                 ui.add(egui::DragValue::new(&mut self.piece.fps).range(1.0..=120.0));
                 ui.label("res");
@@ -569,16 +635,30 @@ impl eframe::App for App {
         });
 
         /* ───────── the ink well (§11) ───────── */
-        egui::containers::CentralPanel::default().show(ui, |ui| {
+        // Founder ruling S263 (the web board already settled this — GraphCanvas.tsx,
+        // app/globals.css): chrome stays cream, the canvas interior is a recessed ink
+        // ground, because assets are additive-on-black and a cream canvas would preview
+        // every thumbnail against a ground it never renders on. Same tokens, not new hues.
+        const WELL: egui::Color32 = egui::Color32::from_rgb(0x14, 0x11, 0x0c); // --color-well
+        const NODE: egui::Color32 = egui::Color32::from_rgb(0x20, 0x1a, 0x13); // --color-node
+        const NODE_LINE: egui::Color32 = egui::Color32::from_rgba_premultiplied(0xc9, 0xa8, 0x4c, 51); // --color-node-line
+        const NODE_TEXT: egui::Color32 = egui::Color32::from_rgb(0xf2, 0xec, 0xe0); // --color-node-text
+
+        egui::containers::CentralPanel::default()
+            .frame(egui::Frame::new().fill(WELL))
+            .show(ui, |ui| {
             if self.shot_idx.is_none() {
                 ui.centered_and_justified(|ui| {
-                    ui.label("open a shot, or add one");
+                    ui.colored_label(NODE_TEXT.gamma_multiply(0.6), "open a shot, or add one");
                 });
                 return;
             }
             let mut viewer = PlViewer { by_id: &self.by_id, last_refusal: self.refusal.take() };
             let style = SnarlStyle {
                 collapsible: Some(true),
+                bg_frame: Some(egui::Frame::new().fill(WELL)),
+                node_frame: Some(egui::Frame::new().fill(NODE).stroke(egui::Stroke::new(1.0, NODE_LINE)).corner_radius(6.0).inner_margin(6.0)),
+                bg_pattern_stroke: Some(egui::Stroke::new(1.0, NODE_LINE)),
                 ..Default::default()
             };
             SnarlWidget::new()
