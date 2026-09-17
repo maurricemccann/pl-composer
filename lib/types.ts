@@ -119,12 +119,13 @@ export function assetSocket(kind: AssetKind): SocketType {
  * nothing. The rest exist because a cut between two stills reads as a jolt where a
  * cut between two moving clips reads as an edit.
  *
- * Deliberately six words, not ffmpeg's fifty. Nearly all of the rest are gimmicks
+ * Deliberately five words, not ffmpeg's fifty. Nearly all of the rest are gimmicks
  * that would read as somebody else's brand. `dissolve` maps to ffmpeg's `fade`, not
  * its `dissolve` — that one is a noisy random-pixel effect, which is not what the
- * word means to anyone.
+ * word means to anyone. `white` was cut on the founder's own ruling (S279·5ce0) —
+ * louder than the house register wants, and not worth defending against `black`.
  */
-export const TRANSITIONS = ["cut", "dissolve", "black", "white", "wipe", "slide"] as const;
+export const TRANSITIONS = ["cut", "dissolve", "black", "wipe", "slide"] as const;
 export type Transition = (typeof TRANSITIONS)[number];
 
 /** What each one does, for the picker — nobody should have to render to find out. */
@@ -132,7 +133,6 @@ export const TRANSITION_WHY: Record<Transition, string> = {
   cut: "Nothing. The next shot is simply there.",
   dissolve: "One picture becomes the other.",
   black: "Out through black, then in. The longest pause.",
-  white: "Out through white. Louder than black — use it once.",
   wipe: "The next shot pushes up over this one.",
   slide: "Both move together, upward.",
 };
