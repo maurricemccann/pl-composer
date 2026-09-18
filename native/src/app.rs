@@ -254,6 +254,7 @@ impl App {
             GNodeData {
                 kind: NodeKind::Source,
                 asset_id: Some(asset.id.clone()),
+                muted: false,
                 out: None,
                 args: Map::new(),
             },

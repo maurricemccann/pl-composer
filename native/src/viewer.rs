@@ -9,8 +9,8 @@
 //! §11 said the canvas is where boldness gets spent. Typed pins carry their socket's
 //! colour, so a dense graph reads at a glance instead of being decoded.
 
-use crate::bridge::{canvas_of, port_name};
-use crate::graph::{can_connect, default_args, kind_spec, next_out, output_type, GNodeData, NodeKind, ParamType, ADDABLE_KINDS, NODE_GROUPS};
+use crate::bridge::{canvas_of, port_name, snarl_of};
+use crate::graph::{bypass, can_connect, default_args, kind_spec, next_out, output_type, GNodeData, NodeKind, ParamType, ADDABLE_KINDS, NODE_GROUPS};
 use crate::types::{Asset, SocketType};
 use egui::{Color32, Pos2, Ui};
 use egui_snarl::{
@@ -53,9 +53,16 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
             };
         }
         let label = kind_spec(node.kind).label.to_string();
-        match &node.out {
+        let label = match &node.out {
             Some(o) => format!("{label}  ·  {o}"),
             None => label,
+        };
+        // Muted still shows its wiring and params — it's a bypass, not a delete — but
+        // the title has to say so, because the header tint alone is easy to miss.
+        if node.muted {
+            format!("{label}  (muted)")
+        } else {
+            label
         }
     }
 
@@ -109,7 +116,10 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
             }
         };
         let [r, g, b] = t.rgb();
-        default.fill(Color32::from_rgba_unmultiplied(r, g, b, 46))
+        // Muted desaturates toward grey rather than losing the tint outright — still
+        // recognisably "what this was," just visibly switched off.
+        let alpha = if data.muted { 16 } else { 46 };
+        default.fill(Color32::from_rgba_unmultiplied(r, g, b, alpha))
     }
 
     fn show_input(
@@ -280,6 +290,60 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
             ui.label("the terminal stays");
             return;
         }
+
+        let kind = snarl[node].kind;
+        let single_input = kind_spec(kind).inputs.len() == 1;
+
+        // Mute (P1, Blender's `M`): bypass this op without losing its wiring or params.
+        // Restricted to single-input kinds — Layer/Matte take two and bypassing one
+        // would be a guess about which side survives.
+        if single_input {
+            let muted = snarl[node].muted;
+            if ui
+                .button(if muted { "unmute" } else { "mute" })
+                .on_hover_text("bypass this op at render time — its wiring and params stay, it just doesn't run")
+                .clicked()
+            {
+                snarl[node].muted = !muted;
+                ui.close();
+                return;
+            }
+        }
+
+        // Duplicate (P1, Blender's Shift-D): same kind and params, no wires — matches
+        // what plain Duplicate does in Blender too, not Duplicate Linked.
+        if ui.button("duplicate").on_hover_text("a copy of this node's kind and params, unwired").clicked() {
+            let existing: Vec<crate::graph::GNode> = canvas_of(snarl).0;
+            let data = snarl[node].clone();
+            let out = next_out(kind, &existing, data.asset_id.as_deref());
+            let pos = snarl.get_node_info(node).map(|i| i.pos).unwrap_or_default();
+            snarl.insert_node(
+                pos + egui::vec2(24.0, 24.0),
+                crate::graph::GNodeData { out, muted: false, ..data },
+            );
+            ui.close();
+            return;
+        }
+
+        // Delete + Reconnect (P1, Blender's Ctrl-Delete): same single-input restriction
+        // as mute, and the same shared `bypass()` rewiring — this one is permanent.
+        if single_input
+            && ui
+                .button("delete + reconnect")
+                .on_hover_text("removes this node and rewires whatever it fed straight to whatever fed it")
+                .clicked()
+        {
+            let (nodes, mut edges, ids) = canvas_of(snarl);
+            if let Some(my_id) = ids.get(&node) {
+                bypass(my_id, &nodes, &mut edges);
+                let remaining: Vec<crate::graph::GNode> =
+                    nodes.into_iter().filter(|n| &n.id != my_id).collect();
+                *snarl = snarl_of(&remaining, &edges);
+            }
+            ui.close();
+            return;
+        }
+
         if ui.button("delete node").clicked() {
             snarl.remove_node(node);
             ui.close();
@@ -308,6 +372,7 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
                         crate::graph::GNodeData {
                             kind: *k,
                             asset_id: None,
+                            muted: false,
                             out,
                             args: default_args(*k),
                         },
@@ -348,7 +413,7 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
                         let out = next_out(k, &existing, None);
                         let new_node = snarl.insert_node(
                             pos,
-                            crate::graph::GNodeData { kind: k, asset_id: None, out, args: default_args(k) },
+                            crate::graph::GNodeData { kind: k, asset_id: None, muted: false, out, args: default_args(k) },
                         );
                         snarl.connect(src, InPinId { node: new_node, input: input_idx });
                         ui.close();
@@ -370,7 +435,7 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
                         let out = next_out(k, &existing, None);
                         let new_node = snarl.insert_node(
                             pos,
-                            crate::graph::GNodeData { kind: k, asset_id: None, out, args: default_args(k) },
+                            crate::graph::GNodeData { kind: k, asset_id: None, muted: false, out, args: default_args(k) },
                         );
                         snarl.connect(OutPinId { node: new_node, output: 0 }, dst);
                         ui.close();

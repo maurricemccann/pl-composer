@@ -271,6 +271,14 @@ pub struct GNodeData {
     /// Sources only: which manifest row this is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_id: Option<String>,
+    /// Bypassed at emission time (§ P1, Blender's `M`): the node stays on the canvas,
+    /// wired exactly as before, but `to_graph_nodes` skips it and rewires whatever it
+    /// fed straight to whatever fed it — the founder can test a graph with and without
+    /// an op without losing its wiring or its params. Only defined for single-input
+    /// kinds (`bypass()` below); Layer/Matte have two inputs and would be ambiguous
+    /// about which to bridge, so muting one of those is refused in the UI.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub muted: bool,
     /// The identifier this node's output is referred to by — `v_energy`, `m_blend_07`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub out: Option<String>,
@@ -385,13 +393,55 @@ fn reaches(from: &str, to: &str, edges: &[GEdge]) -> bool {
 
 /* ─────────────────────────── canvas ▶ spec ─────────────────────────── */
 
+/// Redirect every edge sourced from `node_id` to instead source from whatever feeds
+/// `node_id`'s own sole input, then drop `node_id`'s inbound edge. The shared rewiring
+/// step behind both mute (applied only at emission, non-destructively, below) and
+/// delete-with-reconnect (applied for real, in the viewer). Only meaningful for a node
+/// with exactly one input port — Layer/Matte take two and would be ambiguous about
+/// which to bridge, so callers restrict both actions to single-input kinds in the UI.
+pub fn bypass(node_id: &str, nodes: &[GNode], edges: &mut Vec<GEdge>) {
+    let Some(node) = nodes.iter().find(|n| n.id == node_id) else { return };
+    let spec = kind_spec(node.data.kind);
+    let Some(in_port) = spec.inputs.first().map(|p| p.id) else { return };
+    let upstream = edges
+        .iter()
+        .find(|e| e.target == node_id && e.target_handle == in_port)
+        .map(|e| e.source.clone());
+    edges.retain(|e| e.target != node_id);
+    match upstream {
+        Some(up) => {
+            for e in edges.iter_mut() {
+                if e.source == node_id {
+                    e.source = up.clone();
+                }
+            }
+        }
+        // Nothing feeds it — its outputs are dangling; drop them too so nothing
+        // downstream silently claims a producer that no longer exists.
+        None => edges.retain(|e| e.source != node_id),
+    }
+}
+
 /// Serialise the canvas into the emitter's contract.
 ///
 /// Emission order is a topological sort (Kahn) with the catalog's `rank` breaking ties,
 /// which reproduces the derived wiring's order exactly: renders, then the value chain,
 /// then layers. Layers additionally tie-break on their position in the terminal's input
 /// list, so composite order is the order they are wired — visible on each card.
+///
+/// Muted nodes are bypassed here, not on the canvas: `bypass()` runs against a scratch
+/// copy of `edges` for every muted node, and the muted nodes themselves are excluded
+/// from emission — the founder can flip a mute on and off and see the difference
+/// without losing the node's wiring or params.
 pub fn to_graph_nodes(nodes: &[GNode], edges: &[GEdge]) -> Vec<GraphNode> {
+    let mut edges: Vec<GEdge> = edges.to_vec();
+    for n in nodes.iter().filter(|n| n.data.muted) {
+        bypass(&n.id, nodes, &mut edges);
+    }
+    let active: Vec<GNode> = nodes.iter().filter(|n| !n.data.muted).cloned().collect();
+    let nodes: &[GNode] = &active;
+    let edges: &[GEdge] = &edges;
+
     let by_node_id: HashMap<&str, &GNode> = nodes.iter().map(|n| (n.id.as_str(), n)).collect();
 
     let input_ref = |node_id: &str, port: &str| -> Option<String> {
@@ -563,6 +613,7 @@ pub fn from_graph_nodes(
             data: GNodeData {
                 kind: NodeKind::Source,
                 asset_id: Some(aid.clone()),
+                muted: false,
                 out: None,
                 args: Map::new(),
             },
@@ -613,7 +664,7 @@ pub fn from_graph_nodes(
         nodes.push(GNode {
             id: id.clone(),
             position: Pos { x: 0.0, y: 0.0 },
-            data: GNodeData { kind, asset_id: None, out: g.out.clone(), args: rest },
+            data: GNodeData { kind, asset_id: None, muted: false, out: g.out.clone(), args: rest },
         });
 
         for (r, portname) in links {
@@ -643,7 +694,7 @@ pub fn from_graph_nodes(
     nodes.push(GNode {
         id: terminal_id.clone(),
         position: Pos { x: 0.0, y: 0.0 },
-        data: GNodeData { kind: NodeKind::Shot, asset_id: None, out: None, args: Map::new() },
+        data: GNodeData { kind: NodeKind::Shot, asset_id: None, muted: false, out: None, args: Map::new() },
     });
     for l in &layer_ids {
         edges.push(GEdge {
@@ -863,9 +914,9 @@ mod tests {
     fn a_matte_needs_both_halves() {
         let by_id = world(&[("m1", "media"), ("c1", "curve")]);
         let mut nodes = vec![
-            GNode { id: "s1".into(), position: Pos { x: 0.0, y: 0.0 }, data: GNodeData { kind: NodeKind::Source, asset_id: Some("m1".into()), out: None, args: Map::new() } },
-            GNode { id: "mt".into(), position: Pos { x: 0.0, y: 0.0 }, data: GNodeData { kind: NodeKind::Matte, asset_id: None, out: None, args: default_args(NodeKind::Matte) } },
-            GNode { id: "sh".into(), position: Pos { x: 0.0, y: 0.0 }, data: GNodeData { kind: NodeKind::Shot, asset_id: None, out: None, args: Map::new() } },
+            GNode { id: "s1".into(), position: Pos { x: 0.0, y: 0.0 }, data: GNodeData { kind: NodeKind::Source, asset_id: Some("m1".into()), muted: false, out: None, args: Map::new() } },
+            GNode { id: "mt".into(), position: Pos { x: 0.0, y: 0.0 }, data: GNodeData { kind: NodeKind::Matte, asset_id: None, muted: false, out: None, args: default_args(NodeKind::Matte) } },
+            GNode { id: "sh".into(), position: Pos { x: 0.0, y: 0.0 }, data: GNodeData { kind: NodeKind::Shot, asset_id: None, muted: false, out: None, args: Map::new() } },
         ];
         let mut edges = vec![
             GEdge { id: "e0".into(), source: "s1".into(), target: "mt".into(), target_handle: "base".into() },
@@ -875,7 +926,7 @@ mod tests {
         assert!(to_graph_nodes(&nodes, &edges).is_empty(), "a half-wired matte must emit nothing");
 
         // Wire the shape and it appears — with `ground: auto` omitted, not written out.
-        nodes.push(GNode { id: "s2".into(), position: Pos { x: 0.0, y: 0.0 }, data: GNodeData { kind: NodeKind::Source, asset_id: Some("c1".into()), out: None, args: Map::new() } });
+        nodes.push(GNode { id: "s2".into(), position: Pos { x: 0.0, y: 0.0 }, data: GNodeData { kind: NodeKind::Source, asset_id: Some("c1".into()), muted: false, out: None, args: Map::new() } });
         edges.push(GEdge { id: "e2".into(), source: "s2".into(), target: "mt".into(), target_handle: "shape".into() });
         let g = to_graph_nodes(&nodes, &edges);
         assert_eq!(g.len(), 1);
@@ -886,12 +937,62 @@ mod tests {
         let _ = by_id;
     }
 
+    /// Mute bypasses at emission time only: the muted node vanishes from the emitted
+    /// graph and whatever it fed now reads straight from whatever fed IT — but flip
+    /// `muted` back off and the original wiring (and its own op) reappears untouched.
+    #[test]
+    fn a_muted_node_is_bypassed_at_emission_only() {
+        let mk = |id: &str, kind: NodeKind, out: Option<&str>, muted: bool| GNode {
+            id: id.into(),
+            position: Pos { x: 0.0, y: 0.0 },
+            data: GNodeData { kind, asset_id: None, muted, out: out.map(String::from), args: default_args(kind) },
+        };
+        let src = |id: &str, aid: &str| GNode {
+            id: id.into(),
+            position: Pos { x: 0.0, y: 0.0 },
+            data: GNodeData { kind: NodeKind::Source, asset_id: Some(aid.into()), muted: false, out: None, args: Map::new() },
+        };
+
+        let mut nodes = vec![
+            src("s1", "a1"),
+            mk("ee", NodeKind::EnvelopeExtract, Some("v_energy"), false),
+            mk("rm", NodeKind::Remap, Some("v_remap"), true), // muted
+            src("s2", "m1"),
+            mk("ly", NodeKind::Layer, None, false),
+            mk("sh", NodeKind::Shot, None, false),
+        ];
+        let edges = vec![
+            GEdge { id: "e0".into(), source: "s1".into(), target: "ee".into(), target_handle: "audio".into() },
+            GEdge { id: "e1".into(), source: "ee".into(), target: "rm".into(), target_handle: "value".into() },
+            GEdge { id: "e2".into(), source: "s2".into(), target: "ly".into(), target_handle: "base".into() },
+            GEdge { id: "e3".into(), source: "rm".into(), target: "ly".into(), target_handle: "opacity".into() },
+            GEdge { id: "e4".into(), source: "ly".into(), target: "sh".into(), target_handle: "layers".into() },
+        ];
+
+        // Muted: remap's own op is gone, and the layer reads opacity straight off the
+        // envelope — not off a node that no longer emits anything.
+        let g = to_graph_nodes(&nodes, &edges);
+        assert!(!g.iter().any(|n| n.op == "remap"), "a muted node must not emit its own op");
+        let layer = g.iter().find(|n| n.op == "layer").expect("layer must still emit");
+        let bind = layer.arg("bind").and_then(Value::as_object).expect("layer must still bind");
+        assert_eq!(bind.get("opacity"), Some(&s("v_energy")), "bypassed opacity must read straight off envelope_extract");
+
+        // Unmuted: the exact same canvas, one flag flipped, restores both remap's op
+        // AND the original wiring — nothing about the edges themselves ever changed.
+        nodes.iter_mut().find(|n| n.id == "rm").unwrap().data.muted = false;
+        let g2 = to_graph_nodes(&nodes, &edges);
+        assert!(g2.iter().any(|n| n.op == "remap"), "unmuted must emit its own op again");
+        let layer2 = g2.iter().find(|n| n.op == "layer").unwrap();
+        let bind2 = layer2.arg("bind").and_then(Value::as_object).unwrap();
+        assert_eq!(bind2.get("opacity"), Some(&s("v_remap")), "unmuted opacity must read off remap again");
+    }
+
     #[test]
     fn out_names_stay_unique() {
         let nodes = vec![GNode {
             id: "a".into(),
             position: Pos { x: 0.0, y: 0.0 },
-            data: GNodeData { kind: NodeKind::EnvelopeExtract, asset_id: None, out: Some("v_energy".into()), args: Map::new() },
+            data: GNodeData { kind: NodeKind::EnvelopeExtract, asset_id: None, muted: false, out: Some("v_energy".into()), args: Map::new() },
         }];
         assert_eq!(next_out(NodeKind::EnvelopeExtract, &nodes, None).as_deref(), Some("v_energy_2"));
         assert_eq!(next_out(NodeKind::Layer, &nodes, None), None, "layers have no out name");
