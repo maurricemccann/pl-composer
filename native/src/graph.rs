@@ -45,6 +45,16 @@ pub const ADDABLE_KINDS: [NodeKind; 6] = [
     NodeKind::Matte,
 ];
 
+/// The same six kinds, grouped by role rather than a flat alphabet soup — so the add
+/// menu and the legend both read as "render / value / combine" instead of six unrelated
+/// buttons the founder has to already know the graph to sort. One source of truth for
+/// both (founder request, S280: see the logic before wiring anything).
+pub const NODE_GROUPS: &[(&str, &[NodeKind])] = &[
+    ("render — geometry into pixels", &[NodeKind::BlenderRender]),
+    ("value — a number to drive something", &[NodeKind::EnvelopeExtract, NodeKind::Remap, NodeKind::Constant]),
+    ("combine — makes the picture", &[NodeKind::Layer, NodeKind::Matte]),
+];
+
 impl NodeKind {
     /// The op string this kind emits as. `Source` and `Shot` emit nothing — they are
     /// canvas-only structure, not operations.

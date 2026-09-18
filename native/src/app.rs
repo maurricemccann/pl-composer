@@ -11,9 +11,10 @@
 
 use crate::bridge::{canvas_of, snarl_of, terminal_count};
 use crate::emit::{emit_spec, stamp_now};
-use crate::graph::{canvas_for, to_graph_nodes, GNodeData, NodeKind};
+use crate::graph::{canvas_for, kind_spec, to_graph_nodes, GNodeData, NodeKind, NODE_GROUPS};
 use crate::types::{
-    transition_why, Asset, Manifest, Piece, Shot, TRANSITIONS, TRANSITION_SECONDS,
+    transition_why, Asset, Manifest, Piece, Shot, SOCKET_TYPES, TRANSITIONS,
+    TRANSITION_SECONDS,
 };
 use crate::viewer::PlViewer;
 use egui_snarl::{
@@ -488,7 +489,7 @@ impl eframe::App for App {
             ui.label(format!("{} shown", matching.len()));
             ui.separator();
 
-            egui::containers::ScrollArea::vertical().show(ui, |ui| {
+            egui::containers::ScrollArea::vertical().max_height(ui.available_height() - 220.0).show(ui, |ui| {
                 for a in &matching {
                     let dur = a.duration.map(|d| format!("  {d:.1}s")).unwrap_or_default();
                     if ui
@@ -499,6 +500,40 @@ impl eframe::App for App {
                         self.add_source_node(a);
                     }
                 }
+            });
+
+            // The legend the founder asked for (S280): what the colours mean and what
+            // the right-click menu's groups can actually do, visible without having to
+            // wire anything first. Reads straight off the same data the canvas itself
+            // uses (`SocketType`, `kind_spec`) — one source of truth, never a second
+            // description that can drift from what the graph actually enforces.
+            ui.separator();
+            egui::CollapsingHeader::new("legend").default_open(true).show(ui, |ui| {
+                ui.label("sockets — a wire's colour is what it carries");
+                for t in SOCKET_TYPES {
+                    let [r, g, b] = t.rgb();
+                    ui.horizontal(|ui| {
+                        let (rect, _) = ui.allocate_exact_size(egui::vec2(10.0, 10.0), egui::Sense::hover());
+                        ui.painter().rect_filled(rect, 2.0, egui::Color32::from_rgb(r, g, b));
+                        ui.label(format!("{} — {}", t.label(), t.carries()));
+                    });
+                }
+                ui.add_space(6.0);
+                ui.label("nodes — right-click the canvas to add one");
+                ui.label("source: a library row you clicked. Its colour depends on what it is (media/curve/audio/model).");
+                for (group, kinds) in NODE_GROUPS {
+                    ui.label(format!("{}:", group));
+                    for k in *kinds {
+                        let spec = kind_spec(*k);
+                        let inputs: Vec<&str> = spec.inputs.iter().map(|p| p.label).collect();
+                        let takes = if inputs.is_empty() { "nothing".to_string() } else { inputs.join(" + ") };
+                        let gives = spec.output.map(|o| o.label()).unwrap_or("nothing (terminal)");
+                        ui.label(format!("  {} — takes {}, gives {}", spec.label, takes, gives));
+                    }
+                }
+                ui.label("shot: the terminal every graph ends at. Takes one or more Layer/Matte outputs (stacked in the order you wire them) and gives nothing further.");
+                ui.add_space(6.0);
+                ui.label("a wire only lands if its colour matches the port. A refused wire says why in red, bottom-left.");
             });
         });
 

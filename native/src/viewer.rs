@@ -10,7 +10,7 @@
 //! colour, so a dense graph reads at a glance instead of being decoded.
 
 use crate::bridge::{canvas_of, port_name};
-use crate::graph::{can_connect, default_args, kind_spec, next_out, output_type, GNodeData, NodeKind, ParamType, ADDABLE_KINDS};
+use crate::graph::{can_connect, default_args, kind_spec, next_out, output_type, GNodeData, NodeKind, ParamType, ADDABLE_KINDS, NODE_GROUPS};
 use crate::types::{Asset, SocketType};
 use egui::{Color32, Pos2, Ui};
 use egui_snarl::{
@@ -296,23 +296,26 @@ impl SnarlViewer<crate::graph::GNodeData> for PlViewer<'_> {
         ui: &mut Ui,
         snarl: &mut Snarl<crate::graph::GNodeData>,
     ) {
-        ui.label("add");
-        for k in ADDABLE_KINDS {
-            let spec = kind_spec(k);
-            if ui.button(spec.label).on_hover_text(spec.why).clicked() {
-                let existing: Vec<crate::graph::GNode> = canvas_of(snarl).0;
-                let out = next_out(k, &existing, None);
-                snarl.insert_node(
-                    pos,
-                    crate::graph::GNodeData {
-                        kind: k,
-                        asset_id: None,
-                        out,
-                        args: default_args(k),
-                    },
-                );
-                ui.close();
+        for (group, kinds) in NODE_GROUPS {
+            ui.label(*group);
+            for k in *kinds {
+                let spec = kind_spec(*k);
+                if ui.button(spec.label).on_hover_text(spec.why).clicked() {
+                    let existing: Vec<crate::graph::GNode> = canvas_of(snarl).0;
+                    let out = next_out(*k, &existing, None);
+                    snarl.insert_node(
+                        pos,
+                        crate::graph::GNodeData {
+                            kind: *k,
+                            asset_id: None,
+                            out,
+                            args: default_args(*k),
+                        },
+                    );
+                    ui.close();
+                }
             }
+            ui.separator();
         }
     }
 
