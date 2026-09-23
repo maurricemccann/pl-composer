@@ -48,9 +48,12 @@ const before = assets.length;
 
 // Only touch assets that actually live in the gallery's public tree. The 3D, vault and
 // photo catalogues were never curated and must not be filtered by a name collision.
+// Exception: `pl-onmodel-*` (S290) is a unique prefix whose archive copies on D:\ carry
+// the same stems as the gallery copies he rates, so a cut there must reach them too.
 const kept = assets.filter(a => {
-  const inGallery = String(a.path || '').includes('pl-curves-gallery');
-  return !(inGallery && cutStems.has(stem(a.name)));
+  const s = stem(a.name);
+  const curated = String(a.path || '').includes('pl-curves-gallery') || s.startsWith('pl-onmodel-');
+  return !(curated && cutStems.has(s));
 });
 const removed = before - kept.length;
 
