@@ -19,7 +19,9 @@ async function fsmod() { return await import("node:fs/promises"); }
 export async function GET() {
   try {
     const fs = await fsmod();
-    const names = (await fs.readdir(JOBS).catch(() => [] as string[])).filter((n) => n.endsWith(".json") && n !== "state.json");
+    const dir = await fs.readdir(JOBS).catch(() => null);
+    if (!dir) return fromR2();
+    const names = dir.filter((n) => n.endsWith(".json") && n !== "state.json");
     let state: Record<string, Record<string, unknown>> = {};
     try { state = JSON.parse(await fs.readFile(`${JOBS}/state.json`, "utf8")); } catch { /* no card has moved yet */ }
     let queue: Record<string, { frames?: number; total?: number; status?: string; note?: string }> = {};
@@ -37,8 +39,21 @@ export async function GET() {
     }
     cards.sort((a, b) => (b.created ?? "").localeCompare(a.created ?? ""));
     return Response.json({ source: "disk", pulled: new Date().toISOString(), cards });
+  } catch {
+    return fromR2();
+  }
+}
+
+/** No disk (Cloudflare): the last board the PC published (composer_jobs.py publish), read-only. */
+async function fromR2() {
+  try {
+    const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+    const bucket = (getCloudflareContext().env as { VAULT?: R2Bucket }).VAULT;
+    const obj = bucket ? await bucket.get("composer/board.json") : null;
+    if (!obj) return Response.json({ source: "r2", cards: [], note: "nothing published yet" });
+    return new Response(obj.body, { headers: { "content-type": "application/json", "cache-control": "no-store" } });
   } catch (e) {
-    return Response.json({ error: "no-disk", detail: String(e) }, { status: 503 });
+    return Response.json({ error: "no-disk-no-r2", detail: String(e) }, { status: 503 });
   }
 }
 
