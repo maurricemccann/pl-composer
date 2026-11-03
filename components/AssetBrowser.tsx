@@ -1,17 +1,19 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   type Asset,
   type Manifest,
   assetSocket,
   SOCKET_COLOR,
 } from "@/lib/types";
+import { useDebouncedValue } from "@/lib/use-debounced-value";
+import { dedup } from "@/lib/request-dedup";
+import { fetchWithTimeout } from "@/lib/fetch-with-timeout";
+import { Skeleton } from "@/components/Skeleton";
 
-/** Rows rendered at once. 5,509 assets is a real library; the DOM does not need all
- *  of it to answer "where is the obsidian bed". Filter narrows, this caps. No
- *  virtualization dependency until a real piece proves the cap is the problem. */
-const PAGE = 60;
+/** Rows rendered at once. 100 per page per founder ruling. */
+const PAGE = 100;
 
 /** m:ss — short enough to sit in a dense row without pushing the name out. */
 function clock(sec: number): string {
@@ -22,8 +24,8 @@ function clock(sec: number): string {
 function bytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
-  if (n < 1024 * 1024 * 1024) return `${(n / 1048576).toFixed(1)} MB`;
-  return `${(n / 1073741824).toFixed(2)} GB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
 export default function AssetBrowser({
@@ -33,46 +35,52 @@ export default function AssetBrowser({
   attachTo,
 }: {
   onPick?: (a: Asset) => void;
-  /** Hands the loaded manifest up so the page can resolve ids when emitting the
-   *  spec. One fetch, one owner — the page does not re-request it. */
   onLoad?: (m: Manifest) => void;
-  /** id -> data URI, fetched once by the page and shared with the spine. */
   thumbs?: Record<string, string>;
-  /** Where a click will land. Clicking an asset attaches it to the selected shot, and
-   *  nothing here used to say which one — the only feedback was a source count quietly
-   *  changing in a card that might be off to the side. */
   attachTo?: string | null;
 }) {
   const thumbs = thumbsProp ?? {};
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const [error, setError] = useState<{ error: string; detail?: string } | null>(null);
   const [q, setQ] = useState("");
+  const debouncedQ = useDebouncedValue(q);
   const [catalog, setCatalog] = useState<string>("all");
   const [limit, setLimit] = useState(PAGE);
 
   useEffect(() => {
-    fetch("/api/manifest")
-      .then(async (r) => {
-        const j = await r.json();
-        if (!r.ok) throw j;
-        return j as Manifest;
-      })
-      .then((m) => {
+    let active = true;
+    const run = async () => {
+      try {
+        const m = await dedup("asset-browser-manifest", async () => {
+          const r = await fetchWithTimeout("/api/manifest", { timeoutMs: 10000 });
+          const j = await r.json();
+          if (!r.ok) throw j;
+          return j as Manifest;
+        });
+        if (!active) return;
         setManifest(m);
         onLoad?.(m);
-      })
-      .catch((e) => setError(e?.error ? e : { error: "unreachable", detail: String(e) }));
+      } catch (e: unknown) {
+        if (!active) return;
+        setError(
+          e && typeof e === "object" && "error" in e
+            ? (e as { error: string; detail?: string })
+            : { error: "unreachable", detail: String(e) },
+        );
+      }
+    };
+    run();
+    return () => { active = false; };
     // Intentionally once on mount: the manifest is republished by the CLI, not by
     // anything this component does, so re-running on an onLoad identity change would
     // only refetch 5,500 rows for nothing.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /** Counts follow the TEXT filter. They used to keep their full-library numbers while
-   *  a filter was active, so the chips stopped describing what was on screen. */
+  /** Counts follow the TEXT filter. */
   const catalogs = useMemo(() => {
     if (!manifest) return [];
-    const needle = q.trim().toLowerCase();
+    const needle = debouncedQ.trim().toLowerCase();
     const tally = new Map<string, number>();
     for (const a of manifest.assets) {
       if (needle && !a.name.toLowerCase().includes(needle) && !a.ext.includes(needle)) continue;
@@ -82,28 +90,28 @@ export default function AssetBrowser({
       .filter((r) => r.present && r.count > 0)
       .map((r) => ({ ...r, count: tally.get(r.catalog) ?? 0 }))
       .filter((r) => r.count > 0);
-  }, [manifest, q]);
+  }, [manifest, debouncedQ]);
 
   const totalShown = useMemo(() => {
     if (!manifest) return 0;
-    const needle = q.trim().toLowerCase();
+    const needle = debouncedQ.trim().toLowerCase();
     if (!needle) return manifest.counts.total;
     return manifest.assets.filter(
       (a) => a.name.toLowerCase().includes(needle) || a.ext.includes(needle),
     ).length;
-  }, [manifest, q]);
+  }, [manifest, debouncedQ]);
 
   const filtered = useMemo(() => {
     if (!manifest) return [];
-    const needle = q.trim().toLowerCase();
+    const needle = debouncedQ.trim().toLowerCase();
     return manifest.assets.filter((a) => {
       if (catalog !== "all" && a.catalog !== catalog) return false;
       if (!needle) return true;
       return a.name.toLowerCase().includes(needle) || a.ext.includes(needle);
     });
-  }, [manifest, q, catalog]);
+  }, [manifest, debouncedQ, catalog]);
 
-  useEffect(() => setLimit(PAGE), [q, catalog]);
+  useEffect(() => setLimit(PAGE), [debouncedQ, catalog]);
 
   if (error) {
     return (
@@ -122,14 +130,18 @@ export default function AssetBrowser({
   }
 
   if (!manifest) {
-    return <div className="p-4 text-[var(--color-muted)]">Reading the library…</div>;
+    return (
+      <div className="p-4 flex flex-col items-center justify-center min-h-[300px]">
+        <Skeleton count={4} variant="pulse" className="w-32" />
+        <p className="mt-4 text-[var(--color-muted)]">Reading the library…</p>
+      </div>
+    );
   }
 
   const missing = manifest.roots.filter((r) => !r.present);
 
   return (
     <div className="flex h-full flex-col">
-      {/* Header: what this library actually is, in numbers. */}
       <div className="border-b rule px-3 py-2">
         <div className="flex items-baseline justify-between">
           <span className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-text-dim)]">
@@ -146,8 +158,6 @@ export default function AssetBrowser({
           indexed {manifest.generated.replace("T", " ")}
           {!manifest.probed && " · durations not probed"}
         </div>
-        {/* Where a click lands. Without this the only feedback for an attach is a
-            source count changing in a card that may be scrolled out of view. */}
         <div className="mt-1 truncate text-[10px]">
           {attachTo ? (
             <span className="text-[var(--color-gold-dim)]">
@@ -159,8 +169,6 @@ export default function AssetBrowser({
         </div>
       </div>
 
-      {/* An unmounted root is the one thing that must never be quiet: the library
-          looks smaller, and nothing else on screen would say why. */}
       {missing.length > 0 && (
         <div className="border-b rule border-l-2 border-l-[var(--color-warn)] bg-[var(--color-surface-2)] px-3 py-2 text-[11px]">
           <span className="font-medium text-[var(--color-warn)]">
@@ -212,15 +220,12 @@ export default function AssetBrowser({
                     title={`${a.path}\n\n${socket}`}
                     className="flex w-full items-center gap-2 border-b rule px-3 py-1.5 text-left hover:bg-[var(--color-surface-2)]"
                   >
-                    {/* The picture, where there is one. This is the whole point of the
-                        preview layer: a black-ink SVG and a glowing one are the same
-                        filename until you can see them. Models and the 3d catalog have
-                        no cheap thumbnail and keep the typed dot. */}
                     {thumbs[a.id] ? (
                       <img
                         src={thumbs[a.id]}
                         alt=""
                         loading="lazy"
+                        decoding="async"
                         className="h-7 w-7 shrink-0 rounded-[2px] border rule object-cover"
                         style={{ background: "var(--color-well)" }}
                       />
@@ -235,9 +240,6 @@ export default function AssetBrowser({
                       </span>
                     )}
                     <span className="min-w-0 flex-1 truncate">{a.name}</span>
-                    {/* Real length, once the index has been probed. Without it a 4s
-                        shot pulled from a 30s clip silently uses the first 4s and
-                        nothing on screen relates the two. */}
                     {a.duration ? (
                       <span className="num shrink-0 text-[10px] text-[var(--color-gold-dim)]">
                         {clock(a.duration)}
@@ -258,7 +260,7 @@ export default function AssetBrowser({
 
         {filtered.length > limit && (
           <button
-            onClick={() => setLimit((n) => n + PAGE * 4)}
+            onClick={() => setLimit((n) => n + PAGE)}
             className="w-full px-3 py-2 text-[12px] text-[var(--color-gold-dim)] hover:bg-[var(--color-surface-2)]"
           >
             Show more — {(filtered.length - limit).toLocaleString()} not shown
@@ -276,7 +278,7 @@ function Chip({
 }: {
   on: boolean;
   onClick: () => void;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <button
