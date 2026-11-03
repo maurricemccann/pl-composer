@@ -20,13 +20,21 @@ export async function GET() {
   try {
     bucket = (getCloudflareContext().env as { VAULT?: R2Bucket }).VAULT;
   } catch {
-    // Thrown by `next dev`, which has no Cloudflare context at all. Say so plainly
-    // rather than returning an empty manifest — an asset browser showing 0 assets
-    // because of a missing binding must never look like a library with 0 assets.
-    return Response.json(
-      { error: "no-cloudflare-context", detail: "Run `npm run preview`, not `next dev` — the manifest lives in R2." },
-      { status: 503 },
-    );
+    // Thrown by `next dev`, which has no Cloudflare context at all. S342 (his ruling: Composer runs local-first as a desktop app):
+    // on this PC the CLI's own manifest.json is the authority, so read it straight off disk. Anywhere else, say so plainly rather
+    // than returning an empty manifest — an asset browser showing 0 assets because of a missing binding must never look like a
+    // library with 0 assets.
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const local = process.env.PL_MANIFEST ?? "C:/dev/OpenMontage/projects/pl-curves/manifest.json";
+      const text = await readFile(local, "utf8");
+      return new Response(text, { headers: { "content-type": "application/json", "x-pl-manifest": "disk" } });
+    } catch {
+      return Response.json(
+        { error: "no-cloudflare-context", detail: "No Cloudflare context and no local manifest.json (C:/dev/OpenMontage/projects/pl-curves). Run asset_index.py, or `npm run preview`." },
+        { status: 503 },
+      );
+    }
   }
 
   if (!bucket) {

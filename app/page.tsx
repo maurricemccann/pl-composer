@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import AssetBrowser from "@/components/AssetBrowser";
 import SpecSheet from "@/components/SpecSheet";
+import { Board } from "@/components/Board";
 import GraphCanvas, { GraphSummary } from "@/components/GraphCanvas";
-import { emitSpec } from "@/lib/emit";
+import { emitSpec, deriveGraph } from "@/lib/emit";
 import {
   type Asset,
   type Manifest,
@@ -105,6 +106,7 @@ export default function Page() {
   const [pieces, setPieces] = useState<Record<string, Piece>>({});
   const [activeId, setActiveId] = useState<string>("");
   const [picking, setPicking] = useState(false);
+  const [view, setView] = useState<"piece" | "board">("piece");   // S342: the render board lives here, beside the graph (his ruling)
 
   const piece = pieces[activeId] ?? DEFAULT_PIECE;
 
@@ -295,6 +297,19 @@ export default function Page() {
     patch(target, { sourceIds: [...shot.sourceIds, a.id] });
   };
 
+  const sendToRender = async (s: Shot) => {
+    const nodes = s.nodes && s.nodes.length ? s.nodes : deriveGraph(s, byId);
+    const tr = nodes.find((n) => n.op === "tracer_render"); const fc = nodes.find((n) => n.op === "file_to_curate"); const bd = nodes.find((n) => n.op === "bed");
+    if (!tr || !fc) { alert("This shot needs a Tracer Render node and a File to /curate node in its graph before it can be sent."); return; }
+    const pathAsset = byId.get(String(tr.args.source)); if (!pathAsset) { alert("The Tracer Render node is not wired to a path (a tracer job)."); return; }
+    const track = bd ? byId.get(String(bd.args.track)) : undefined;
+    const body = { piece: piece.piece, shot: s.title || s.id, render: { look: String(tr.args.look ?? "velvet"), path_dir: pathAsset.path, seed: Number(tr.args.seed) || undefined },
+      bed: track ? { track: track.path } : null, card: Object.fromEntries(Object.entries(fc.args).filter(([k]) => k !== "source").map(([k, v]) => [k, String(v)])) };
+    const r = (await fetch("/api/board", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }).then((x) => x.json()).catch((e) => ({ error: String(e) }))) as { ok?: boolean; id?: string; error?: string; detail?: string };
+    if (r.error) { alert("The card was not made: " + (r.detail || r.error)); return; }
+    setView("board");
+  };
+
   const total = pieceDuration(piece);
   const openShot = graphFor ? piece.shots.find((s) => s.id === graphFor) ?? null : null;
 
@@ -392,9 +407,18 @@ export default function Page() {
         >
           Build spec
         </button>
+        <button
+          onClick={() => setView((v) => (v === "board" ? "piece" : "board"))}
+          className={"border px-3 py-1 text-[12px] " + (view === "board" ? "border-[var(--color-gold)] text-[var(--color-gold)]" : "rule hover:bg-[var(--color-surface-2)]")}
+          title="The render board: every card the house is rendering or has filed to /curate"
+        >
+          {view === "board" ? "Piece" : "Board"}
+        </button>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      {view === "board" && <div className="min-h-0 flex-1 overflow-auto"><Board /></div>}
+
+      <div className="flex min-h-0 flex-1" style={view === "board" ? { display: "none" } : undefined}>
         {/* ── Library. Desktop only: the spec forbids a graph on phone, and an
               asset browser beside a spine is the same density problem. ──── */}
         <aside className="hidden w-[300px] shrink-0 border-r rule md:block">
@@ -459,6 +483,7 @@ export default function Page() {
                   onMove={(d) => move(s.id, d)}
                   onDuplicate={() => duplicate(s.id)}
                   onRemove={() => remove(s.id)}
+                  onSend={() => sendToRender(s)}
                   onDetach={(aid) =>
                     patch(s.id, { sourceIds: s.sourceIds.filter((x) => x !== aid) })
                   }
@@ -525,6 +550,7 @@ function ShotCard({
   onMove,
   onDuplicate,
   onRemove,
+  onSend,
   onDetach,
 }: {
   shot: Shot;
@@ -545,6 +571,7 @@ function ShotCard({
   onMove: (d: -1 | 1) => void;
   onDuplicate: () => void;
   onRemove: () => void;
+  onSend?: () => void;
   onDetach: (assetId: string) => void;
 }) {
   return (
@@ -587,6 +614,9 @@ function ShotCard({
           </Icon>
           <Icon label="Duplicate shot" onClick={onDuplicate}>
             ⧉
+          </Icon>
+          <Icon label="Send to render (one card on the board)" onClick={() => onSend?.()}>
+            ▶
           </Icon>
           <Icon label="Delete shot" onClick={onRemove}>
             ×
