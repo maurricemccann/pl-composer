@@ -1,1 +1,7 @@
-{}
+{
+  "composer-home": "handbook/shots/composer-home.png",
+  "composer-graph": "handbook/shots/composer-graph.png",
+  "composer-library": "handbook/shots/composer-library.png",
+  "composer-board": "handbook/shots/composer-board.png",
+  "composer-settings": "handbook/shots/composer-settings.png"
+}

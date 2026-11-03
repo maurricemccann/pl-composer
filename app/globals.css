@@ -4,15 +4,15 @@
 /* Inherited from pl-os, not reinvented (spec §11). Same tokens, same names — a
    surface that looks like the cockpit because it is the same house, inner tongue. */
 @theme {
-  --color-bg:        #faf7f0;
-  --color-surface:   #fdf9f1;
-  --color-surface-2: #f5efe2;
-  --color-line:      rgba(160,140,110,0.22);
+  --color-bg:        #0e0c09;
+  --color-surface:   #1a1510;
+  --color-surface-2: #262018;
+  --color-line:      rgba(255,255,255,0.12);
   --color-gold:      #c9a84c;
   --color-gold-dim:  #8a7235;
-  --color-text:      #1a1510;
-  --color-text-dim:  #6b5d48;
-  --color-muted:     #8a8270;
+  --color-text:      #f2ece0;
+  --color-text-dim:  #b8a890;
+  --color-muted:     #9a8d78;
   --color-ok:        #2d8a6e;
   --color-warn:      #b07d2a;
   --color-danger:    #c0392b;
@@ -80,8 +80,8 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
 /* Scrollbars in a dense tool should be present but not loud. */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(160,140,110,0.30);
+  background: rgba(217,177,59,0.35);
   border: 3px solid var(--color-bg);
   border-radius: 6px;
 }
-::-webkit-scrollbar-thumb:hover { background: rgba(160,140,110,0.50); }
+::-webkit-scrollbar-thumb:hover { background: rgba(217,177,59,0.55); }
