@@ -292,7 +292,7 @@ export default function GraphCanvas({
           </button>
           {adding && (
             <ul className="absolute left-0 top-full z-20 mt-1 w-[210px] border rule bg-[var(--color-surface)] shadow-lg">
-              {(["blender_render", "envelope_extract", "remap", "constant", "layer", "matte"] as NodeKind[]).map((k) => (
+              {(["tracer_render", "bed", "file_to_curate", "blender_render", "envelope_extract", "remap", "constant", "layer", "matte"] as NodeKind[]).map((k) => (
                 <li key={k}>
                   <button
                     onClick={() => add(k)}

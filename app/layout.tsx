@@ -30,9 +30,19 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         {children}
-        <div id="psysettings" />
+        {/* Settings and the handbook, the PL Paint way: one quiet button each, bottom-right; the panel is the Design Kit's own. */}
+        <div id="pl-corner" style={{ position: "fixed", right: 12, bottom: 12, zIndex: 40, display: "flex", gap: 6 }}>
+          <a href="/handbook/index.html" target="_blank" rel="noreferrer" className="psybutton" title="The handbook (F1)" style={{ padding: "4px 10px", fontSize: 11 }}>Handbook</a>
+          <button id="pl-settings-btn" className="psybutton" title="Settings" style={{ padding: "4px 10px", fontSize: 11 }}>Settings</button>
+        </div>
+        <div id="pl-settings-panel" className="psyglass psyglass--sheet" hidden style={{ position: "fixed", right: 12, bottom: 48, zIndex: 40, width: 360, maxHeight: "70vh", overflow: "auto", padding: 12 }}>
+          <div id="psysettings" />
+        </div>
         <script src="/psyglass.js" />
-        <script dangerouslySetInnerHTML={{ __html: `window.addEventListener('DOMContentLoaded',()=>{if(window.psyglass)psyglass.auto(${GLASS_MAP});});` }} />
+        <script dangerouslySetInnerHTML={{ __html: `window.addEventListener('DOMContentLoaded',()=>{if(window.psyglass)psyglass.auto(${GLASS_MAP});
+const p=document.getElementById('pl-settings-panel'),b=document.getElementById('pl-settings-btn');
+b.onclick=()=>{p.hidden=!p.hidden;if(!p.hidden&&window.psysettings&&!document.getElementById('psysettings').childElementCount)psysettings.mount(document.getElementById('psysettings'),{handFont:'/fonts/PL-Hand-V2.ttf',notifications:[]});};
+addEventListener('keydown',e=>{if(e.key==='F1'){e.preventDefault();window.open('/handbook/index.html','_blank');}});});` }} />
       </body>
     </html>
   );
