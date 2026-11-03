@@ -164,6 +164,20 @@ function nodeLines(n: GraphNode, byId: Map<string, Asset>): string[] {
     return out;
   }
 
+  if (n.op === "tracer_render") {   // S342: his pen path rendered by one of the house looks; the queue runs this (see render: line)
+    const src = n.args.source;
+    const out: string[] = [`  - tracer_render: ${src} -> ${n.out}${name(src)}`, `      look: ${val(n.args.look)}`];
+    for (const k of ["seed", "fstop", "tool"]) if (n.args[k] !== undefined && n.args[k] !== "") out.push(`      ${k}: ${val(n.args[k])}`);
+    return out;
+  }
+  if (n.op === "bed") {   // S342: a music bed under the clip (tracer_music.py), ending with the drawing
+    return [`  - bed: ${n.args.source} + ${n.args.track} -> ${n.out}${name(n.args.track)}`, `      tail: ${val(n.args.tail)}`];
+  }
+  if (n.op === "file_to_curate") {   // S342: the card. What /curate shows and what the clip is tagged with.
+    const out: string[] = [`  - file_to_curate: ${n.args.source}`];
+    for (const k of ["kind", "medium", "material", "technique", "piece", "words"]) if (n.args[k] !== undefined && n.args[k] !== "") out.push(`      ${k}: ${val(n.args[k])}`);
+    return out;
+  }
   // layer
   const out: string[] = ["  - layer:"];
   out.push(`      base: ${n.args.base}${name(n.args.base)}`);

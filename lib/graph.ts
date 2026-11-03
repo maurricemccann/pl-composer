@@ -29,6 +29,9 @@ export type NodeKind =
   | "constant"
   | "layer"
   | "matte"
+  | "tracer_render"
+  | "bed"
+  | "file_to_curate"
   | "shot";
 
 export interface PortSpec {
@@ -156,6 +159,41 @@ export const KINDS: Record<NodeKind, KindSpec> = {
     ],
     rank: 3,
   },
+  tracer_render: {
+    label: "Tracer Render",
+    why: "His pen path drawn by one of the house looks (S342). The path is his; the look is the material. Never redrawn.",
+    inputs: [{ id: "path", label: "path", accepts: ["Path"] }],
+    output: "Media",
+    params: [
+      { key: "look", label: "look", type: "select", options: ["chalk", "paint", "velvet", "tension", "sand", "ripple", "loom", "flute", "caustic", "foil", "extrude", "vinyl", "shards", "rake", "frost", "patina", "blender-chalk", "blender-desk", "blender-carve", "blender-silk", "bead"] },
+      { key: "seed", label: "seed", type: "number", min: 1, max: 9999, step: 1 },
+    ],
+    rank: 0,
+  },
+  bed: {
+    label: "Bed",
+    why: "A music bed under the clip (tracer_music.py): the track ends with the drawing, then rings out. Every mix is word-checked.",
+    inputs: [
+      { id: "media", label: "media", accepts: ["Media"] },
+      { id: "track", label: "track", accepts: ["Audio"] },
+    ],
+    output: "Media",
+    params: [{ key: "tail", label: "tail", type: "number", min: 2, max: 12, step: 0.5 }],
+    rank: 1,
+  },
+  file_to_curate: {
+    label: "File to /curate",
+    why: "The card. The clip goes to /curate unmarked with these words and tags; he rules there (his ruling 11-02).",
+    inputs: [{ id: "media", label: "media", accepts: ["Media"] }],
+    output: null,
+    params: [
+      { key: "kind", label: "kind", type: "select", options: ["generation technique, music", "traced, music", "cinematic"] },
+      { key: "medium", label: "medium", type: "select", options: ["chalk", "paint", "ink", "wet paint", "enamel bead", "gold wire", "gold thread", "light", "oxidation", "melt"] },
+      { key: "material", label: "material", type: "select", options: ["slate", "paper", "canvas", "black", "kraft", "oxblood velvet", "black lacquer", "sand", "pool water", "indigo cloth", "reeded glass", "foil", "vinyl", "broken glass", "pressed board", "frosted glass", "copper", "lacquered board"] },
+      { key: "technique", label: "technique", type: "select", options: ["chalk", "paint", "velvet", "tension", "sand", "ripple", "loom", "flute", "caustic", "foil", "extrude", "vinyl", "shards", "rake", "frost", "patina", "blender-chalk", "blender-desk", "blender-carve", "blender-silk", "bead"] },
+    ],
+    rank: 4,
+  },
   shot: {
     label: "Shot",
     why: "What this card resolves to. Exactly one per card, and a graph can never contain another (§4).",
@@ -177,6 +215,9 @@ export function defaultArgs(kind: NodeKind): Record<string, unknown> {
     // obsidian otherwise. It is omitted from the emitted spec rather than written out.
     case "matte": return { ground: "auto" };
     case "blender_render": return { fps: "@piece.fps", resolution: "@piece.resolution" };
+    case "tracer_render": return { look: "velvet", seed: 342 };
+    case "bed": return { tail: 6 };
+    case "file_to_curate": return { kind: "generation technique, music", medium: "paint", material: "slate", technique: "velvet" };
     default: return {};
   }
 }
@@ -345,6 +386,18 @@ export function toGraphNodes(nodes: GNode[], edges: GEdge[]): GraphNode[] {
       const source = inputRef(n.id, "model");
       if (!source) continue; // an unwired render has nothing to say; the card flags it
       out.push({ op: "blender_render", out: n.data.out, args: { source, ...args } });
+    } else if (kind === "tracer_render") {
+      const source = inputRef(n.id, "path");
+      if (!source) continue;
+      out.push({ op: "tracer_render", out: n.data.out, args: { source, ...args } });
+    } else if (kind === "bed") {
+      const source = inputRef(n.id, "media"); const track = inputRef(n.id, "track");
+      if (!source || !track) continue;
+      out.push({ op: "bed", out: n.data.out, args: { source, track, ...args } });
+    } else if (kind === "file_to_curate") {
+      const source = inputRef(n.id, "media");
+      if (!source) continue;
+      out.push({ op: "file_to_curate", args: { source, ...args } });
     } else if (kind === "envelope_extract") {
       const source = inputRef(n.id, "audio");
       if (!source) continue;
@@ -437,6 +490,18 @@ export function fromGraphNodes(
       delete rest.source;
       nodes.push({ id, type: "pl", position: { x: 0, y: 0 }, data: { kind: "blender_render", out: g.out, args: rest } });
       link(args.source, id, "model");
+    } else if (op === "tracer_render") {
+      delete rest.source;
+      nodes.push({ id, type: "pl", position: { x: 0, y: 0 }, data: { kind: "tracer_render", out: g.out, args: rest } });
+      link(args.source, id, "path");
+    } else if (op === "bed") {
+      delete rest.source; delete rest.track;
+      nodes.push({ id, type: "pl", position: { x: 0, y: 0 }, data: { kind: "bed", out: g.out, args: rest } });
+      link(args.source, id, "media"); link(args.track, id, "track");
+    } else if (op === "file_to_curate") {
+      delete rest.source;
+      nodes.push({ id, type: "pl", position: { x: 0, y: 0 }, data: { kind: "file_to_curate", args: rest } });
+      link(args.source, id, "media");
     } else if (op === "envelope_extract") {
       delete rest.source;
       nodes.push({ id, type: "pl", position: { x: 0, y: 0 }, data: { kind: "envelope_extract", out: g.out, args: rest } });
@@ -516,9 +581,11 @@ export function canvasFor(shot: Shot, byId: Map<string, Asset>) {
 
 /** A fresh, unused `v_`/`m_` identifier. Names are for humans; uniqueness is for the CLI. */
 export function nextOut(kind: NodeKind, nodes: GNode[], assetId?: string): string | undefined {
-  if (kind === "layer" || kind === "matte" || kind === "source" || kind === "shot") return undefined;
+  if (kind === "layer" || kind === "matte" || kind === "source" || kind === "shot" || kind === "file_to_curate") return undefined;
   const base =
     kind === "blender_render" ? `m_${assetId ?? "render"}`
+    : kind === "tracer_render" ? `m_${assetId ?? "trace"}`
+    : kind === "bed" ? "m_bed"
     : kind === "envelope_extract" ? "v_energy"
     : kind === "remap" ? "v_remap"
     : "v_const";

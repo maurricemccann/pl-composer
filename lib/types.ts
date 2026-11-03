@@ -16,7 +16,7 @@
  * deriver is the only edge out of it. That keeps the spec honest about which stage
  * produced what — the same separation that makes Curve distinct from Media.
  */
-export const SOCKET_TYPES = ["Media", "Curve", "Audio", "Value", "Model", "Shot", "Spec"] as const;
+export const SOCKET_TYPES = ["Media", "Curve", "Audio", "Value", "Model", "Path", "Shot", "Spec"] as const;
 export type SocketType = (typeof SOCKET_TYPES)[number];
 
 /**
@@ -39,6 +39,10 @@ export const SOCKET_META: Record<SocketType, { carries: string; why: string }> =
     carries: "Geometry — a .blend, .glb, .fbx",
     why: "Not pixels yet. Render it to get Media; that stage is never implicit.",
   },
+  Path: {
+    carries: "A tracer job: his pen path over his art",
+    why: "Not pixels yet. A look (chalk, velvet, bead...) renders it; the drawing order is his, never redrawn (S342).",
+  },
   Shot: { carries: "What a card resolves to", why: "Exactly one per card." },
   Spec: { carries: "Terminal", why: "The markdown." },
 };
@@ -54,6 +58,7 @@ export const SOCKET_COLOR: Record<SocketType, string> = {
   Audio: "#2d8a6e", // process green — the one that generates motion
   Value: "#5f93a3", // info slate — numbers, deliberately the quietest
   Model: "#b07d2a", // warn amber — geometry, one render away from being usable
+  Path: "#8c6a3e", // pen umber — his hand, one render away from pixels
   Shot: "#c0392b", // proof red — a resolved shot is an assertion
   Spec: "#1a1510", // ink — terminal
 };
@@ -65,7 +70,7 @@ export const SOCKET_COLOR: Record<SocketType, string> = {
  * `kind` is lowercase here because it is the CLI's vocabulary, not the socket
  * vocabulary — `assetSocket()` below is the single place they are mapped.
  */
-export type AssetKind = "media" | "audio" | "curve" | "model";
+export type AssetKind = "media" | "audio" | "curve" | "model" | "path";
 
 export interface Asset {
   id: string;
@@ -107,6 +112,7 @@ export function assetSocket(kind: AssetKind): SocketType {
     case "curve": return "Curve";
     case "audio": return "Audio";
     case "model": return "Model";
+    case "path": return "Path";
   }
 }
 
@@ -155,7 +161,7 @@ export interface Piece {
  * carry its own graph without the type system importing the serialiser.
  */
 export interface GraphNode {
-  op: "envelope_extract" | "remap" | "constant" | "blender_render" | "layer" | "matte";
+  op: "envelope_extract" | "remap" | "constant" | "blender_render" | "layer" | "matte" | "tracer_render" | "bed" | "file_to_curate";
   /** Node-local value identifier this node produces, e.g. "v_energy". */
   out?: string;
   args: Record<string, unknown>;
