@@ -70,6 +70,23 @@ export async function POST(req: Request) {
     await fs.writeFile(`${JOBS}/${id}.json`, JSON.stringify(job, null, 1), "utf8");
     return Response.json({ ok: true, id });
   } catch (e) {
-    return Response.json({ error: "no-disk", detail: String(e) }, { status: 503 });
+    // S348·9a3e: no disk (the public Worker). A card sent from PL DEV with the composer key waits in R2 composer/inbox.json until the
+    // PC's composer_jobs.py loop pulls it into composer-jobs/. Without the key it is refused: the Worker is public.
+    try {
+      const env = getCloudflareContext().env as { VAULT?: R2Bucket; COMPOSER_KEY?: string };
+      const want = env.COMPOSER_KEY ?? "";
+      const got = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+      if (!want || got.length !== want.length || got !== want) return Response.json({ error: "unauthorized" }, { status: 401 });
+      if (!env.VAULT) return Response.json({ error: "no-disk-no-r2", detail: String(e) }, { status: 503 });
+      const id = `${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}-${body.render.look}-${body.shot}`.replace(/[^A-Za-z0-9_-]/g, "");
+      const job = { id, piece: body.piece, shot: body.shot, created: new Date().toISOString(), render: body.render, bed: body.bed ?? null, card: body.card ?? {} };
+      const cur = await env.VAULT.get("composer/inbox.json");
+      const inbox = cur ? ((await cur.json()) as unknown[]) : [];
+      inbox.push(job);
+      await env.VAULT.put("composer/inbox.json", JSON.stringify(inbox), { httpMetadata: { contentType: "application/json" } });
+      return Response.json({ ok: true, id, waiting: "inbox" });
+    } catch (e2) {
+      return Response.json({ error: "no-disk", detail: String(e2) }, { status: 503 });
+    }
   }
 }
