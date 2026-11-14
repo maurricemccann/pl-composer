@@ -6,6 +6,8 @@
  *   C:/Users/maurr/PSYCHED LUXURIES/_Jarvis/render-queue.json   live render progress
  * On Cloudflare there is no disk: GET answers with the last state file published to R2 (composer/board.json), read-only.
  */
+import { bearer, keyOk, MEDIA_ID, MEDIA_TYPES } from "@/lib/composer-key";
+
 export const dynamic = "force-dynamic";
 
 const JOBS = process.env.PL_COMPOSER_JOBS ?? "C:/dev/pl-tracers-hf/composer-jobs";
@@ -59,7 +61,9 @@ async function fromR2() {
 
 /** Create a card: one render job. Body = { piece, shot, render: {look, path_dir, seed?}, bed: {track} | null, card: {...} }. */
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => null) as null | { piece: string; shot: string; render: { look: string; path_dir: string; seed?: number }; bed: { track: string } | null; card: Record<string, string> };
+  const raw = await req.json().catch(() => null) as null | Record<string, unknown>;
+  if (raw?.kind === "spec") return postSpec(req, raw);
+  const body = raw as null | { piece: string; shot: string; render: { look: string; path_dir: string; seed?: number }; bed: { track: string } | null; card: Record<string, string> };
   if (!body?.render?.look || !body.render.path_dir || !body.piece || !body.shot) return Response.json({ error: "a card needs piece, shot, render.look and render.path_dir" }, { status: 400 });
   if (/[\\/]\.\.|[<>"|?*]/.test(body.render.path_dir)) return Response.json({ error: "bad path" }, { status: 400 });
   try {
@@ -76,8 +80,8 @@ export async function POST(req: Request) {
       const { getCloudflareContext } = await import("@opennextjs/cloudflare");
       const env = getCloudflareContext().env as { VAULT?: R2Bucket; COMPOSER_KEY?: string };
       const want = env.COMPOSER_KEY ?? "";
-      const got = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
-      if (!want || got.length !== want.length || got !== want) return Response.json({ error: "unauthorized" }, { status: 401 });
+      const got = bearer(req);
+      if (!keyOk(want, got)) return Response.json({ error: "unauthorized" }, { status: 401 });
       if (!env.VAULT) return Response.json({ error: "no-disk-no-r2", detail: String(e) }, { status: 503 });
       const id = `${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}-${body.render.look}-${body.shot}`.replace(/[^A-Za-z0-9_-]/g, "");
       const job = { id, piece: body.piece, shot: body.shot, created: new Date().toISOString(), render: body.render, bed: body.bed ?? null, card: body.card ?? {} };
@@ -90,4 +94,38 @@ export async function POST(req: Request) {
       return Response.json({ error: "no-disk", detail: String(e2) }, { status: 503 });
     }
   }
+}
+
+/**
+ * A whole piece from the phone (S348 composer3): { kind: "spec", piece, spec: "<the .spec.md text>", media: ["ph_xxxxxxxx", ...] }.
+ * Always keyed (the Worker is public) and always through R2: every media id must already be uploaded (POST /api/media), else 409 names
+ * the missing ones so the phone can send just those and try again. Lands in the same composer/inbox.json the tracer cards use.
+ */
+async function postSpec(req: Request, b: Record<string, unknown>) {
+  let env: { VAULT?: R2Bucket; COMPOSER_KEY?: string };
+  try { const { getCloudflareContext } = await import("@opennextjs/cloudflare"); env = getCloudflareContext().env as typeof env; }
+  catch { return Response.json({ error: "no-cloudflare-context" }, { status: 503 }); }
+  if (!keyOk(env.COMPOSER_KEY ?? "", bearer(req))) return Response.json({ error: "unauthorized" }, { status: 401 });
+  if (!env.VAULT) return Response.json({ error: "no-r2" }, { status: 503 });
+  const piece = typeof b.piece === "string" ? b.piece.trim() : "", spec = typeof b.spec === "string" ? b.spec : "";
+  const ids = Array.isArray(b.media) ? (b.media as unknown[]) : [];
+  if (!piece || piece.length > 120) return Response.json({ error: "a spec card needs a piece name (120 characters at most)" }, { status: 400 });
+  if (!spec.startsWith("---") || spec.length > 300_000 || !/^## Shot /m.test(spec)) return Response.json({ error: "spec is not a Composer spec" }, { status: 400 });
+  if (ids.length > 60 || !ids.every((x) => typeof x === "string" && MEDIA_ID.test(x))) return Response.json({ error: "bad media ids" }, { status: 400 });
+  const media: { id: string; ext: string }[] = [], missing: string[] = [];
+  for (const id of new Set(ids as string[])) {
+    let hit = "";
+    for (const ext of Object.keys(MEDIA_TYPES)) if (await env.VAULT.head(`composer/media/${id}.${ext}`)) { hit = ext; break; }
+    if (hit) media.push({ id, ext: hit }); else missing.push(id);
+  }
+  if (missing.length) return Response.json({ error: "media not uploaded", missing }, { status: 409 });
+  const slug = piece.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40) || "piece";
+  const rnd = Array.from(crypto.getRandomValues(new Uint8Array(2)), (x) => x.toString(16).padStart(2, "0")).join("");
+  const id = `${new Date().toISOString().slice(0, 16).replace(/[-:T]/g, "")}-spec-${slug}-${rnd}`;
+  const job = { id, kind: "spec", piece, shot: "the piece", created: new Date().toISOString(), spec, media, render: { look: "spec", path_dir: "" }, bed: null, card: {} };
+  const cur = await env.VAULT.get("composer/inbox.json");
+  const inbox = cur ? ((await cur.json()) as unknown[]) : [];
+  inbox.push(job);
+  await env.VAULT.put("composer/inbox.json", JSON.stringify(inbox), { httpMetadata: { contentType: "application/json" } });
+  return Response.json({ ok: true, id, waiting: "inbox", media: media.length });
 }
