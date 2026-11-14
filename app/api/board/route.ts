@@ -73,6 +73,7 @@ export async function POST(req: Request) {
     // S348·9a3e: no disk (the public Worker). A card sent from PL DEV with the composer key waits in R2 composer/inbox.json until the
     // PC's composer_jobs.py loop pulls it into composer-jobs/. Without the key it is refused: the Worker is public.
     try {
+      const { getCloudflareContext } = await import("@opennextjs/cloudflare");
       const env = getCloudflareContext().env as { VAULT?: R2Bucket; COMPOSER_KEY?: string };
       const want = env.COMPOSER_KEY ?? "";
       const got = (req.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
