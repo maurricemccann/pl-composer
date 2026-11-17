@@ -334,7 +334,7 @@ export default function GraphCanvas({
             onConnect={onConnect}
             isValidConnection={validate}
             onSelectionChange={({ nodes: n }) => setSel(n[0]?.id ?? null)}
-            colorMode="dark"
+            forceColorMode="dark"
             fitView
             fitViewOptions={{ padding: 0.14, maxZoom: 1 }}
             /* React Flow's default minZoom is 0.5, and fitView will not go below it —
